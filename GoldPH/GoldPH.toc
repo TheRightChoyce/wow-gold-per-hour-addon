@@ -1,0 +1,16 @@
+## Interface: 11504
+## Title: GoldPH
+## Notes: Session-based gold-per-hour tracking with double-ledger accounting (WoW Classic Anniversary)
+## Author: Claude Code
+## Version: 0.1.0-phase1
+## SavedVariables: GoldPH_DB
+
+# Core modules (load order matters)
+Ledger.lua
+SessionManager.lua
+Events.lua
+Debug.lua
+UI_HUD.lua
+
+# Entry point (must be last)
+init.lua

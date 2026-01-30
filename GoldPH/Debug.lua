@@ -1,0 +1,304 @@
+--[[
+    Debug.lua - Debug and testing infrastructure for GoldPH
+
+    Provides invariant checks, test injection, and debugging tools.
+]]
+
+local GoldPH_Debug = {}
+
+-- Color codes for chat output
+local COLOR_GREEN = "|cff00ff00"
+local COLOR_RED = "|cffff0000"
+local COLOR_YELLOW = "|cffffff00"
+local COLOR_RESET = "|r"
+
+--------------------------------------------------
+-- Invariant Checks
+--------------------------------------------------
+
+-- Validate core accounting invariant: NetWorth = Cash + InventoryExpected
+function GoldPH_Debug:ValidateNetWorth(session)
+    if not session or not session.ledger then
+        return false, "Invalid session"
+    end
+
+    -- Phase 1: Only cash tracking (no inventory yet)
+    local cash = GoldPH_Ledger:GetBalance(session, "Assets:Cash")
+    local netWorth = cash
+
+    -- Future phases: Add inventory expected values
+    -- for acct, bal in pairs(session.ledger.balances) do
+    --     if acct:match("^Assets:Inventory:") then
+    --         netWorth = netWorth + bal
+    --     end
+    -- end
+
+    -- Sum income and expenses
+    local income = 0
+    local expenses = 0
+    for acct, bal in pairs(session.ledger.balances) do
+        if acct:match("^Income:") then
+            income = income + bal
+        elseif acct:match("^Expense:") then
+            expenses = expenses + bal
+        end
+    end
+
+    -- Phase 4+: Account for inventory realization
+    local equity = GoldPH_Ledger:GetBalance(session, "Equity:InventoryRealization")
+
+    -- Invariant: NetWorth = Income - Expenses - EquityAdjustment
+    local expected = income - expenses - equity
+    local diff = netWorth - expected
+
+    if diff ~= 0 then
+        return false, string.format("NetWorth invariant violated! NetWorth=%d, Expected=%d, Diff=%d",
+                                    netWorth, expected, diff)
+    end
+
+    return true, "NetWorth invariant OK"
+end
+
+-- Validate ledger balance (debits = credits in double-entry)
+function GoldPH_Debug:ValidateLedgerBalance(session)
+    if not session or not session.ledger then
+        return false, "Invalid session"
+    end
+
+    -- In pure double-entry, sum of all balances should be even
+    -- (each Dr+Cr pair contributes equal amounts)
+    -- However, with our simplified model, we just check for negative balances
+    for acct, bal in pairs(session.ledger.balances) do
+        if bal < 0 then
+            return false, string.format("Negative balance in account: %s = %d", acct, bal)
+        end
+    end
+
+    return true, "Ledger balance OK"
+end
+
+-- Validate holdings (Phase 3+)
+function GoldPH_Debug:ValidateHoldings(session)
+    -- Phase 1: No holdings yet, always pass
+    return true, "Holdings validation skipped (Phase 1)"
+
+    -- Phase 3+: Implement holdings validation
+    -- Verify that sum of holdings expected values matches Assets:Inventory:* accounts
+end
+
+-- Run all invariant checks
+function GoldPH_Debug:ValidateInvariants(session)
+    local results = {}
+    local allPass = true
+
+    local ok1, msg1 = self:ValidateNetWorth(session)
+    table.insert(results, {name = "NetWorth", ok = ok1, message = msg1})
+    if not ok1 then allPass = false end
+
+    local ok2, msg2 = self:ValidateLedgerBalance(session)
+    table.insert(results, {name = "Ledger", ok = ok2, message = msg2})
+    if not ok2 then allPass = false end
+
+    local ok3, msg3 = self:ValidateHoldings(session)
+    table.insert(results, {name = "Holdings", ok = ok3, message = msg3})
+    if not ok3 then allPass = false end
+
+    -- Log results if verbose or if any failed
+    if GoldPH_DB.debug.verbose or not allPass then
+        for _, result in ipairs(results) do
+            local color = result.ok and COLOR_GREEN or COLOR_RED
+            print(string.format("%s[GoldPH Invariant] %s: %s%s", color, result.name, result.message, COLOR_RESET))
+        end
+    end
+
+    return allPass, results
+end
+
+--------------------------------------------------
+-- Test Suite
+--------------------------------------------------
+
+-- Run automated tests for Phase 1
+function GoldPH_Debug:RunTests()
+    print(COLOR_YELLOW .. "[GoldPH Test Suite] Running Phase 1 tests..." .. COLOR_RESET)
+
+    local testResults = {}
+
+    -- Test 1: Basic loot posting
+    local test1 = self:Test_BasicLoot()
+    table.insert(testResults, test1)
+
+    -- Test 2: Multiple loot events
+    local test2 = self:Test_MultipleLoot()
+    table.insert(testResults, test2)
+
+    -- Test 3: Zero amount handling
+    local test3 = self:Test_ZeroLoot()
+    table.insert(testResults, test3)
+
+    -- Summary
+    local passed = 0
+    local failed = 0
+    for _, result in ipairs(testResults) do
+        if result.passed then
+            passed = passed + 1
+        else
+            failed = failed + 1
+        end
+    end
+
+    local summaryColor = (failed == 0) and COLOR_GREEN or COLOR_RED
+    print(string.format("%s[GoldPH Test Suite] %d passed, %d failed%s",
+                        summaryColor, passed, failed, COLOR_RESET))
+
+    return failed == 0
+end
+
+-- Test: Basic loot posting
+function GoldPH_Debug:Test_BasicLoot()
+    local testName = "Basic Loot Posting"
+
+    -- Start temporary session
+    if not GoldPH_SessionManager:GetActiveSession() then
+        GoldPH_SessionManager:StartSession()
+    end
+
+    local session = GoldPH_SessionManager:GetActiveSession()
+    local initialCash = GoldPH_Ledger:GetBalance(session, "Assets:Cash")
+    local initialIncome = GoldPH_Ledger:GetBalance(session, "Income:LootedCoin")
+
+    -- Inject loot
+    local lootAmount = 500
+    GoldPH_Events:InjectLootedCoin(lootAmount)
+
+    -- Verify balances
+    local finalCash = GoldPH_Ledger:GetBalance(session, "Assets:Cash")
+    local finalIncome = GoldPH_Ledger:GetBalance(session, "Income:LootedCoin")
+
+    local cashDiff = finalCash - initialCash
+    local incomeDiff = finalIncome - initialIncome
+
+    local passed = (cashDiff == lootAmount) and (incomeDiff == lootAmount)
+    local message = passed and "OK" or
+                    string.format("FAIL: Expected +%d, got Cash+%d Income+%d", lootAmount, cashDiff, incomeDiff)
+
+    self:LogTestResult(testName, passed, message)
+
+    return {name = testName, passed = passed, message = message}
+end
+
+-- Test: Multiple loot events
+function GoldPH_Debug:Test_MultipleLoot()
+    local testName = "Multiple Loot Events"
+
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        return {name = testName, passed = false, message = "No active session"}
+    end
+
+    local initialCash = GoldPH_Ledger:GetBalance(session, "Assets:Cash")
+
+    -- Inject multiple loots
+    GoldPH_Events:InjectLootedCoin(100)
+    GoldPH_Events:InjectLootedCoin(250)
+    GoldPH_Events:InjectLootedCoin(75)
+
+    local finalCash = GoldPH_Ledger:GetBalance(session, "Assets:Cash")
+    local totalLooted = 100 + 250 + 75
+    local cashDiff = finalCash - initialCash
+
+    local passed = (cashDiff == totalLooted)
+    local message = passed and "OK" or
+                    string.format("FAIL: Expected +%d, got +%d", totalLooted, cashDiff)
+
+    self:LogTestResult(testName, passed, message)
+
+    return {name = testName, passed = passed, message = message}
+end
+
+-- Test: Zero amount handling
+function GoldPH_Debug:Test_ZeroLoot()
+    local testName = "Zero Amount Handling"
+
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        return {name = testName, passed = false, message = "No active session"}
+    end
+
+    local initialCash = GoldPH_Ledger:GetBalance(session, "Assets:Cash")
+
+    -- Try to inject zero (should be rejected)
+    local ok = GoldPH_Events:InjectLootedCoin(0)
+
+    local finalCash = GoldPH_Ledger:GetBalance(session, "Assets:Cash")
+    local cashDiff = finalCash - initialCash
+
+    local passed = (not ok) and (cashDiff == 0)
+    local message = passed and "OK" or "FAIL: Zero amount was not rejected"
+
+    self:LogTestResult(testName, passed, message)
+
+    return {name = testName, passed = passed, message = message}
+end
+
+-- Log test result
+function GoldPH_Debug:LogTestResult(testName, passed, message)
+    local color = passed and COLOR_GREEN or COLOR_RED
+    local status = passed and "PASS" or "FAIL"
+    print(string.format("%s[Test: %s] %s: %s%s", color, testName, status, message, COLOR_RESET))
+end
+
+--------------------------------------------------
+-- State Inspection
+--------------------------------------------------
+
+-- Dump current session state
+function GoldPH_Debug:DumpSession()
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        print(COLOR_YELLOW .. "[GoldPH Debug] No active session" .. COLOR_RESET)
+        return
+    end
+
+    print(COLOR_YELLOW .. "=== GoldPH Session Dump ===" .. COLOR_RESET)
+    print(string.format("Session ID: %d", session.id))
+    print(string.format("Started: %s", date("%Y-%m-%d %H:%M:%S", session.startedAt)))
+    print(string.format("Duration: %s", GoldPH_SessionManager:FormatDuration(time() - session.startedAt)))
+    print(string.format("Zone: %s", session.zone))
+
+    print("\nLedger Balances:")
+    for acct, bal in pairs(session.ledger.balances) do
+        print(string.format("  %s: %s", acct, GoldPH_Ledger:FormatMoney(bal)))
+    end
+
+    local metrics = GoldPH_SessionManager:GetMetrics(session)
+    print("\nMetrics:")
+    print(string.format("  Cash: %s", GoldPH_Ledger:FormatMoney(metrics.cash)))
+    print(string.format("  Cash/Hour: %s", GoldPH_Ledger:FormatMoney(metrics.cashPerHour)))
+
+    print(COLOR_YELLOW .. "===========================" .. COLOR_RESET)
+end
+
+-- Show all account balances
+function GoldPH_Debug:ShowLedger()
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        print(COLOR_YELLOW .. "[GoldPH Debug] No active session" .. COLOR_RESET)
+        return
+    end
+
+    print(COLOR_YELLOW .. "=== Ledger Balances ===" .. COLOR_RESET)
+    for acct, bal in pairs(session.ledger.balances) do
+        print(string.format("  %s: %s (%d copper)", acct, GoldPH_Ledger:FormatMoney(bal), bal))
+    end
+    print(COLOR_YELLOW .. "=======================" .. COLOR_RESET)
+end
+
+-- Show holdings (Phase 3+)
+function GoldPH_Debug:ShowHoldings()
+    print(COLOR_YELLOW .. "[GoldPH Debug] Holdings display not implemented yet (Phase 3+)" .. COLOR_RESET)
+    -- Phase 3+: Display FIFO lots
+end
+
+-- Export module
+_G.GoldPH_Debug = GoldPH_Debug

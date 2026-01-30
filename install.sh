@@ -1,0 +1,109 @@
+#!/bin/bash
+
+# GoldPH Install Script for macOS
+# Installs the addon to your WoW Classic AddOns directory
+
+set -e
+
+echo "======================================"
+echo "  GoldPH Addon Installer (macOS)"
+echo "======================================"
+echo ""
+
+# Define WoW Anniversary installation paths
+WOW_PATHS=(
+    "/Applications/World of Warcraft/_anniversary_/Interface/AddOns"
+    "$HOME/Applications/World of Warcraft/_anniversary_/Interface/AddOns"
+)
+
+# Find existing WoW installations
+FOUND_PATHS=()
+for path in "${WOW_PATHS[@]}"; do
+    if [ -d "$path" ]; then
+        FOUND_PATHS+=("$path")
+    fi
+done
+
+# Check if WoW Anniversary installation was found
+if [ ${#FOUND_PATHS[@]} -eq 0 ]; then
+    echo "❌ Error: Could not find WoW Classic Anniversary AddOns directory"
+    echo ""
+    echo "Searched in:"
+    for path in "${WOW_PATHS[@]}"; do
+        echo "  - $path"
+    done
+    echo ""
+    echo "Please ensure WoW Classic Anniversary is installed or specify the path manually:"
+    echo "  ./install.sh /path/to/WoW/_anniversary_/Interface/AddOns"
+    exit 1
+fi
+
+# Use the first found path or the one specified by user
+if [ -n "$1" ]; then
+    ADDONS_DIR="$1"
+    if [ ! -d "$ADDONS_DIR" ]; then
+        echo "❌ Error: Specified directory does not exist: $ADDONS_DIR"
+        exit 1
+    fi
+elif [ ${#FOUND_PATHS[@]} -eq 1 ]; then
+    ADDONS_DIR="${FOUND_PATHS[0]}"
+else
+    # Multiple installations found, let user choose
+    echo "Found multiple WoW installations:"
+    for i in "${!FOUND_PATHS[@]}"; do
+        echo "  $((i+1)). ${FOUND_PATHS[$i]}"
+    done
+    echo ""
+    read -p "Select installation (1-${#FOUND_PATHS[@]}): " choice
+
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt ${#FOUND_PATHS[@]} ]; then
+        echo "❌ Invalid selection"
+        exit 1
+    fi
+
+    ADDONS_DIR="${FOUND_PATHS[$((choice-1))]}"
+fi
+
+TARGET_DIR="$ADDONS_DIR/GoldPH"
+
+echo "Installing to: $ADDONS_DIR"
+echo ""
+
+# Check if GoldPH already exists
+if [ -d "$TARGET_DIR" ]; then
+    echo "⚠️  GoldPH is already installed"
+    read -p "Do you want to overwrite it? (y/n): " overwrite
+
+    if [[ ! "$overwrite" =~ ^[Yy]$ ]]; then
+        echo "Installation cancelled"
+        exit 0
+    fi
+
+    # Backup existing installation
+    BACKUP_DIR="$TARGET_DIR.backup.$(date +%Y%m%d_%H%M%S)"
+    echo "Creating backup: $BACKUP_DIR"
+    mv "$TARGET_DIR" "$BACKUP_DIR"
+fi
+
+# Copy addon files
+echo "Copying GoldPH addon files..."
+cp -r "$(dirname "$0")/GoldPH" "$ADDONS_DIR/"
+
+# Verify installation
+if [ -f "$TARGET_DIR/GoldPH.toc" ]; then
+    echo ""
+    echo "✅ GoldPH installed successfully!"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Launch or /reload World of Warcraft"
+    echo "  2. Type: /goldph help"
+    echo "  3. Start tracking: /goldph start"
+    echo ""
+    echo "Testing without in-game actions:"
+    echo "  /goldph test run       - Run automated tests"
+    echo "  /goldph test loot 500  - Inject test gold"
+    echo ""
+else
+    echo "❌ Installation may have failed. GoldPH.toc not found."
+    exit 1
+fi
