@@ -69,20 +69,10 @@ TARGET_DIR="$ADDONS_DIR/GoldPH"
 echo "Installing to: $ADDONS_DIR"
 echo ""
 
-# Check if GoldPH already exists
+# Remove existing installation if present
 if [ -d "$TARGET_DIR" ]; then
-    echo "⚠️  GoldPH is already installed"
-    read -p "Do you want to overwrite it? (y/n): " overwrite
-
-    if [[ ! "$overwrite" =~ ^[Yy]$ ]]; then
-        echo "Installation cancelled"
-        exit 0
-    fi
-
-    # Backup existing installation
-    BACKUP_DIR="$TARGET_DIR.backup.$(date +%Y%m%d_%H%M%S)"
-    echo "Creating backup: $BACKUP_DIR"
-    mv "$TARGET_DIR" "$BACKUP_DIR"
+    echo "Removing existing GoldPH installation..."
+    rm -rf "$TARGET_DIR"
 fi
 
 # Copy addon files

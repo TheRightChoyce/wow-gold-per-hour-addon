@@ -14,7 +14,7 @@ local UPDATE_INTERVAL = 1.0 -- Update every 1 second
 function GoldPH_HUD:Initialize()
     -- Create main frame
     hudFrame = CreateFrame("Frame", "GoldPH_HUD_Frame", UIParent)
-    hudFrame:SetSize(220, 130)  -- Increased size for Phase 2 expenses
+    hudFrame:SetSize(240, 175)  -- Increased size for Phase 3 inventory tracking
     hudFrame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -50, -200)
 
     -- Make it movable
@@ -88,6 +88,27 @@ function GoldPH_HUD:Initialize()
     netText:SetJustifyH("LEFT")
     hudFrame.netText = netText
 
+    -- Phase 3: Separator line
+    local separator = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    separator:SetPoint("TOPLEFT", 10, -130)
+    separator:SetText("---")
+    separator:SetJustifyH("LEFT")
+    hudFrame.separator = separator
+
+    -- Phase 3: Expected inventory value
+    local expectedText = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    expectedText:SetPoint("TOPLEFT", 10, -140)
+    expectedText:SetText("Expected: 0c")
+    expectedText:SetJustifyH("LEFT")
+    hudFrame.expectedText = expectedText
+
+    -- Phase 3: Total economic value per hour
+    local totalPerHourText = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    totalPerHourText:SetPoint("TOPLEFT", 10, -155)
+    totalPerHourText:SetText("Total/hr: 0c")
+    totalPerHourText:SetJustifyH("LEFT")
+    hudFrame.totalPerHourText = totalPerHourText
+
     -- Update loop
     hudFrame:SetScript("OnUpdate", function(self, elapsed)
         updateTimer = updateTimer + elapsed
@@ -134,9 +155,9 @@ function GoldPH_HUD:Update()
     local netCash = metrics.income - metrics.expenses
     hudFrame.netText:SetText(string.format("Net: %s", GoldPH_Ledger:FormatMoney(netCash)))
 
-    -- Phase 3+: Add expected inventory and total economic value
-    -- hudFrame.expectedText:SetText(...)
-    -- hudFrame.totalPerHourText:SetText(...)
+    -- Phase 3: Expected inventory and total economic value
+    hudFrame.expectedText:SetText(string.format("Expected: %s", GoldPH_Ledger:FormatMoney(metrics.expectedInventory)))
+    hudFrame.totalPerHourText:SetText(string.format("Total/hr: %s", GoldPH_Ledger:FormatMoney(metrics.totalPerHour)))
 end
 
 -- Show HUD

@@ -77,13 +77,52 @@ function GoldPH_Debug:ValidateLedgerBalance(session)
     return true, "Ledger balance OK"
 end
 
--- Validate holdings (Phase 3+)
+-- Validate holdings (Phase 3)
 function GoldPH_Debug:ValidateHoldings(session)
-    -- Phase 1: No holdings yet, always pass
-    return true, "Holdings validation skipped (Phase 1)"
+    if not session or not session.holdings then
+        return true, "No holdings to validate"
+    end
 
-    -- Phase 3+: Implement holdings validation
-    -- Verify that sum of holdings expected values matches Assets:Inventory:* accounts
+    -- Sum up expected values from holdings by bucket
+    local holdingsByBucket = {
+        vendor_trash = 0,
+        rare_multi = 0,
+        gathering = 0,
+        container_lockbox = 0,
+    }
+
+    for itemID, holding in pairs(session.holdings) do
+        for _, lot in ipairs(holding.lots) do
+            local bucket = lot.bucket
+            local value = lot.count * lot.expectedEach
+            holdingsByBucket[bucket] = (holdingsByBucket[bucket] or 0) + value
+        end
+    end
+
+    -- Compare with ledger accounts
+    local vendorTrash = GoldPH_Ledger:GetBalance(session, "Assets:Inventory:VendorTrash")
+    local rareMulti = GoldPH_Ledger:GetBalance(session, "Assets:Inventory:RareMulti")
+    local gathering = GoldPH_Ledger:GetBalance(session, "Assets:Inventory:Gathering")
+
+    local errors = {}
+    if holdingsByBucket.vendor_trash ~= vendorTrash then
+        table.insert(errors, string.format("VendorTrash: holdings=%d, ledger=%d",
+            holdingsByBucket.vendor_trash, vendorTrash))
+    end
+    if holdingsByBucket.rare_multi ~= rareMulti then
+        table.insert(errors, string.format("RareMulti: holdings=%d, ledger=%d",
+            holdingsByBucket.rare_multi, rareMulti))
+    end
+    if holdingsByBucket.gathering ~= gathering then
+        table.insert(errors, string.format("Gathering: holdings=%d, ledger=%d",
+            holdingsByBucket.gathering, gathering))
+    end
+
+    if #errors > 0 then
+        return false, "Holdings mismatch: " .. table.concat(errors, "; ")
+    end
+
+    return true, "Holdings match ledger"
 end
 
 -- Run all invariant checks
@@ -361,10 +400,35 @@ function GoldPH_Debug:ShowLedger()
     print(COLOR_YELLOW .. "=======================" .. COLOR_RESET)
 end
 
--- Show holdings (Phase 3+)
+-- Show holdings (Phase 3)
 function GoldPH_Debug:ShowHoldings()
-    print(COLOR_YELLOW .. "[GoldPH Debug] Holdings display not implemented yet (Phase 3+)" .. COLOR_RESET)
-    -- Phase 3+: Display FIFO lots
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        print(COLOR_YELLOW .. "[GoldPH Debug] No active session" .. COLOR_RESET)
+        return
+    end
+
+    print(COLOR_YELLOW .. "=== Holdings (FIFO Lots) ===" .. COLOR_RESET)
+
+    if not session.holdings or next(session.holdings) == nil then
+        print("  (No holdings)")
+        print(COLOR_YELLOW .. "=============================" .. COLOR_RESET)
+        return
+    end
+
+    for itemID, holding in pairs(session.holdings) do
+        local itemName = GetItemInfo(itemID) or "Unknown"
+        print(string.format("\n  Item: %s (ID: %d)", itemName, itemID))
+        print(string.format("  Total Count: %d", holding.count))
+        print(string.format("  Lots: %d", #holding.lots))
+
+        for i, lot in ipairs(holding.lots) do
+            print(string.format("    Lot #%d: count=%d, expectedEach=%d (%s), bucket=%s",
+                i, lot.count, lot.expectedEach, GoldPH_Ledger:FormatMoney(lot.expectedEach), lot.bucket))
+        end
+    end
+
+    print(COLOR_YELLOW .. "\n=============================" .. COLOR_RESET)
 end
 
 -- Export module

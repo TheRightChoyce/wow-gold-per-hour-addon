@@ -25,9 +25,11 @@ function GoldPH_SessionManager:StartSession()
 
         zone = GetZoneText() or "Unknown",
 
+        -- Phase 3: Item tracking
+        items = {},      -- [itemID] = ItemAgg (count, expected value, etc.)
+        holdings = {},   -- [itemID] = { count, lots = { Lot, ... } }
+
         -- Additional fields added in later phases:
-        -- items = {},
-        -- holdings = {},
         -- gathering = {},
         -- pickpocket = {},
     }
@@ -98,6 +100,24 @@ function GoldPH_SessionManager:GetMetrics(session)
     local expenseVendorBuys = GoldPH_Ledger:GetBalance(session, "Expense:VendorBuys")
     local totalExpenses = expenseRepairs + expenseVendorBuys
 
+    -- Phase 3: Expected inventory value
+    local invVendorTrash = GoldPH_Ledger:GetBalance(session, "Assets:Inventory:VendorTrash")
+    local invRareMulti = GoldPH_Ledger:GetBalance(session, "Assets:Inventory:RareMulti")
+    local invGathering = GoldPH_Ledger:GetBalance(session, "Assets:Inventory:Gathering")
+    local expectedInventory = invVendorTrash + invRareMulti + invGathering
+
+    local expectedPerHour = 0
+    if durationHours > 0 then
+        expectedPerHour = math.floor(expectedInventory / durationHours)
+    end
+
+    -- Phase 3: Total economic value (net worth change)
+    local totalValue = cash + expectedInventory
+    local totalPerHour = 0
+    if durationHours > 0 then
+        totalPerHour = math.floor(totalValue / durationHours)
+    end
+
     return {
         durationSec = durationSec,
         durationHours = durationHours,
@@ -110,13 +130,16 @@ function GoldPH_SessionManager:GetMetrics(session)
         expenseRepairs = expenseRepairs,
         expenseVendorBuys = expenseVendorBuys,
 
-        -- Phase 3+: Expected inventory value
-        -- expectedInventory = 0,
-        -- expectedPerHour = 0,
+        -- Phase 3: Expected inventory value
+        expectedInventory = expectedInventory,
+        expectedPerHour = expectedPerHour,
+        invVendorTrash = invVendorTrash,
+        invRareMulti = invRareMulti,
+        invGathering = invGathering,
 
-        -- Phase 3+: Total economic value
-        -- totalValue = cash,
-        -- totalPerHour = cashPerHour,
+        -- Phase 3: Total economic value
+        totalValue = totalValue,
+        totalPerHour = totalPerHour,
     }
 end
 
@@ -159,6 +182,29 @@ function GoldPH_SessionManager:ListSessions(limit)
     end
 
     return sessions
+end
+
+--------------------------------------------------
+-- Phase 3: Item Aggregation
+--------------------------------------------------
+
+-- Add or update item in session.items aggregate
+function GoldPH_SessionManager:AddItem(session, itemID, itemName, quality, bucket, count, expectedEach)
+    if not session.items[itemID] then
+        -- Create new item aggregate
+        session.items[itemID] = {
+            itemID = itemID,
+            name = itemName,
+            quality = quality,
+            bucket = bucket,
+            count = 0,
+            expectedTotal = 0,
+        }
+    end
+
+    -- Update counts
+    session.items[itemID].count = session.items[itemID].count + count
+    session.items[itemID].expectedTotal = session.items[itemID].expectedTotal + (count * expectedEach)
 end
 
 -- Export module
