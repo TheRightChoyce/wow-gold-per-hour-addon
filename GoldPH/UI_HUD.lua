@@ -144,6 +144,9 @@ function GoldPH_HUD:Show()
     if hudFrame then
         hudFrame:Show()
         self:Update()
+
+        -- Save visibility state
+        GoldPH_DB.settings.hudVisible = true
     end
 end
 
@@ -151,6 +154,9 @@ end
 function GoldPH_HUD:Hide()
     if hudFrame then
         hudFrame:Hide()
+
+        -- Save visibility state
+        GoldPH_DB.settings.hudVisible = false
     end
 end
 

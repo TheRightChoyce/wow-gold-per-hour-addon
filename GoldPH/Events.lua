@@ -25,10 +25,8 @@ function GoldPH_Events:Initialize(frame)
     frame:RegisterEvent("MERCHANT_CLOSED")
     -- Phase 5+: TAXIMAP_OPENED, TAXIMAP_CLOSED, QUEST_TURNED_IN, etc.
 
-    -- Set event handler
-    frame:SetScript("OnEvent", function(self, event, ...)
-        GoldPH_Events:OnEvent(event, ...)
-    end)
+    -- Note: We do NOT set OnEvent handler here - init.lua maintains control
+    -- and will route events to us via GoldPH_Events:OnEvent()
 
     -- Initialize money tracking
     state.moneyLast = GetMoney()

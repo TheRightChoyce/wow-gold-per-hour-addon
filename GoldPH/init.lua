@@ -21,6 +21,7 @@ local function InitializeSavedVariables()
 
             settings = {
                 trackZone = true,
+                hudVisible = true,  -- Track HUD visibility state
             },
 
             priceOverrides = {},
@@ -50,16 +51,27 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, addonName)
         -- Initialize UI
         GoldPH_HUD:Initialize()
 
-        -- Initialize event system
+        -- Initialize event system (registers additional events)
         GoldPH_Events:Initialize(GoldPH_MainFrame)
 
-        print("[GoldPH] Version 0.2.0-phase2 loaded. Type /goldph help for commands.")
+        print("[GoldPH] Version 0.2.1-bugfix1 loaded. Type /goldph help for commands.")
     elseif event == "PLAYER_ENTERING_WORLD" then
-        -- Check if there's an active session on reload
-        if GoldPH_DB.activeSession then
-            print("[GoldPH] Resumed session #" .. GoldPH_DB.activeSession.id)
-            GoldPH_HUD:Update()
+        -- Ensure hudVisible setting exists (for existing SavedVariables)
+        if GoldPH_DB.settings.hudVisible == nil then
+            GoldPH_DB.settings.hudVisible = true
         end
+
+        -- Auto-restore HUD visibility if session is active
+        if GoldPH_DB.activeSession then
+            if GoldPH_DB.settings.hudVisible then
+                GoldPH_HUD:Show()
+            else
+                GoldPH_HUD:Update()
+            end
+        end
+    else
+        -- Route other events to GoldPH_Events
+        GoldPH_Events:OnEvent(event, addonName)
     end
 end)
 
@@ -102,7 +114,7 @@ local function HandleCommand(msg)
         local ok, message = GoldPH_SessionManager:StartSession()
         print("[GoldPH] " .. message)
         if ok then
-            GoldPH_HUD:Update()
+            GoldPH_HUD:Show()  -- Explicitly show HUD when starting session
         end
 
     elseif cmd == "stop" then
