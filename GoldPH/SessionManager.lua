@@ -83,18 +83,32 @@ function GoldPH_SessionManager:GetMetrics(session)
 
     local durationHours = durationSec / 3600
 
-    -- Phase 1: Only cash tracking
+    -- Phase 1 & 2: Cash and expenses
     local cash = GoldPH_Ledger:GetBalance(session, "Assets:Cash")
     local cashPerHour = 0
     if durationHours > 0 then
         cashPerHour = math.floor(cash / durationHours)
     end
 
+    -- Phase 2: Income breakdown
+    local income = GoldPH_Ledger:GetBalance(session, "Income:LootedCoin")
+
+    -- Phase 2: Expense breakdown
+    local expenseRepairs = GoldPH_Ledger:GetBalance(session, "Expense:Repairs")
+    local expenseVendorBuys = GoldPH_Ledger:GetBalance(session, "Expense:VendorBuys")
+    local totalExpenses = expenseRepairs + expenseVendorBuys
+
     return {
         durationSec = durationSec,
         durationHours = durationHours,
         cash = cash,
         cashPerHour = cashPerHour,
+
+        -- Phase 2: Income/Expense details
+        income = income,
+        expenses = totalExpenses,
+        expenseRepairs = expenseRepairs,
+        expenseVendorBuys = expenseVendorBuys,
 
         -- Phase 3+: Expected inventory value
         -- expectedInventory = 0,

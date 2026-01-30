@@ -118,23 +118,28 @@ end
 -- Test Suite
 --------------------------------------------------
 
--- Run automated tests for Phase 1
+-- Run automated tests (Phase 1 & 2)
 function GoldPH_Debug:RunTests()
-    print(COLOR_YELLOW .. "[GoldPH Test Suite] Running Phase 1 tests..." .. COLOR_RESET)
+    print(COLOR_YELLOW .. "[GoldPH Test Suite] Running tests..." .. COLOR_RESET)
 
     local testResults = {}
 
-    -- Test 1: Basic loot posting
+    -- Phase 1 tests
     local test1 = self:Test_BasicLoot()
     table.insert(testResults, test1)
 
-    -- Test 2: Multiple loot events
     local test2 = self:Test_MultipleLoot()
     table.insert(testResults, test2)
 
-    -- Test 3: Zero amount handling
     local test3 = self:Test_ZeroLoot()
     table.insert(testResults, test3)
+
+    -- Phase 2 tests
+    local test4 = self:Test_BasicRepair()
+    table.insert(testResults, test4)
+
+    local test5 = self:Test_NetCash()
+    table.insert(testResults, test5)
 
     -- Summary
     local passed = 0
@@ -235,6 +240,68 @@ function GoldPH_Debug:Test_ZeroLoot()
 
     local passed = (not ok) and (cashDiff == 0)
     local message = passed and "OK" or "FAIL: Zero amount was not rejected"
+
+    self:LogTestResult(testName, passed, message)
+
+    return {name = testName, passed = passed, message = message}
+end
+
+-- Test: Basic repair posting (Phase 2)
+function GoldPH_Debug:Test_BasicRepair()
+    local testName = "Basic Repair Posting"
+
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        return {name = testName, passed = false, message = "No active session"}
+    end
+
+    local initialCash = GoldPH_Ledger:GetBalance(session, "Assets:Cash")
+    local initialRepairs = GoldPH_Ledger:GetBalance(session, "Expense:Repairs")
+
+    -- Inject repair
+    local repairCost = 250
+    GoldPH_Events:InjectRepair(repairCost)
+
+    -- Verify balances
+    local finalCash = GoldPH_Ledger:GetBalance(session, "Assets:Cash")
+    local finalRepairs = GoldPH_Ledger:GetBalance(session, "Expense:Repairs")
+
+    local cashDiff = finalCash - initialCash
+    local repairDiff = finalRepairs - initialRepairs
+
+    -- Cash should decrease (negative), repairs should increase
+    local passed = (cashDiff == -repairCost) and (repairDiff == repairCost)
+    local message = passed and "OK" or
+                    string.format("FAIL: Expected Cash-%d Repairs+%d, got Cash%+d Repairs+%d",
+                                  repairCost, repairCost, cashDiff, repairDiff)
+
+    self:LogTestResult(testName, passed, message)
+
+    return {name = testName, passed = passed, message = message}
+end
+
+-- Test: Net cash calculation (income - expenses) (Phase 2)
+function GoldPH_Debug:Test_NetCash()
+    local testName = "Net Cash Calculation"
+
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        return {name = testName, passed = false, message = "No active session"}
+    end
+
+    local initialCash = GoldPH_Ledger:GetBalance(session, "Assets:Cash")
+
+    -- Loot 1000, spend 300 on repairs
+    GoldPH_Events:InjectLootedCoin(1000)
+    GoldPH_Events:InjectRepair(300)
+
+    local finalCash = GoldPH_Ledger:GetBalance(session, "Assets:Cash")
+    local cashDiff = finalCash - initialCash
+    local expectedNetCash = 1000 - 300
+
+    local passed = (cashDiff == expectedNetCash)
+    local message = passed and "OK" or
+                    string.format("FAIL: Expected net +%d, got +%d", expectedNetCash, cashDiff)
 
     self:LogTestResult(testName, passed, message)
 

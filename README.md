@@ -2,12 +2,14 @@
 
 A session-based gold tracking addon for World of Warcraft Classic Anniversary using double-ledger accounting to prevent double counting.
 
-**Current Version**: 0.1.0-phase1 (Foundation - Looted Gold Only)
+**Current Version**: 0.2.0-phase2 (Foundation + Vendor Expenses)
 
-## Features (Phase 1)
+## Features (Phase 1 & 2)
 
 - ✅ Session-based tracking (start/stop sessions)
 - ✅ Looted gold tracking
+- ✅ **Repair expense tracking** (Phase 2)
+- ✅ **Income/Expense breakdown in HUD** (Phase 2)
 - ✅ Real-time cash per hour calculation
 - ✅ Persistent sessions (survives `/reload`)
 - ✅ Draggable HUD display
@@ -48,8 +50,11 @@ The script will:
 The HUD will display:
 - Session number
 - Time elapsed
-- Total cash earned
+- Total cash (net)
 - Cash per hour
+- Income (looted gold)
+- Expenses (repairs)
+- Net (income - expenses)
 
 ## Commands
 
@@ -70,6 +75,7 @@ The HUD will display:
 ### Test Commands
 - `/goldph test run` - Run automated test suite
 - `/goldph test loot <copper>` - Inject test gold (e.g., `/goldph test loot 500`)
+- `/goldph test repair <copper>` - Inject test repair cost (e.g., `/goldph test repair 250`)
 
 ## Architecture
 
@@ -84,12 +90,20 @@ This ensures that when items are later sold (Phase 4), we can properly remove th
 
 See [CLAUDE.md](CLAUDE.md) for architecture details and [GoldPH_TDD.md](GoldPH_TDD.md) for technical specification.
 
+## Known Issues
+
+See [TODO.md](TODO.md) for a complete list of improvements and known issues.
+
+**Critical bugs to fix before Phase 3**:
+1. HUD visibility after relog (must manually `/goldph show`)
+2. Session time continues counting when logged out
+
 ## Development Phases
 
 This addon is being developed in 7 incremental phases:
 
 - **Phase 1** (✅ Complete): Looted gold tracking + debug system
-- **Phase 2** (Planned): Vendor expenses (repairs, purchases)
+- **Phase 2** (✅ Complete): Vendor expenses (repairs, purchases)
 - **Phase 3** (Planned): Item looting & valuation
 - **Phase 4** (Planned): Vendor sales with FIFO reversals (prevents double counting)
 - **Phase 5** (Planned): Quest rewards & travel expenses
@@ -176,7 +190,9 @@ This addon is developed incrementally following a multi-phase plan. Each phase b
 6. Pickpocketing (Phase 6)
 7. Gathering & UI polish (Phase 7)
 
-See [PHASE1_SUMMARY.md](PHASE1_SUMMARY.md) for Phase 1 implementation details.
+See implementation summaries:
+- [PHASE1_SUMMARY.md](PHASE1_SUMMARY.md) - Foundation with looted gold tracking
+- [PHASE2_SUMMARY.md](PHASE2_SUMMARY.md) - Vendor expense tracking
 
 ## License
 

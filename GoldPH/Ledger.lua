@@ -17,18 +17,26 @@ function GoldPH_Ledger:InitializeLedger(session)
             -- Income
             ["Income:LootedCoin"] = 0,
 
+            -- Expenses (Phase 2)
+            ["Expense:Repairs"] = 0,
+            ["Expense:VendorBuys"] = 0,
+
             -- Note: Additional accounts will be added in later phases:
-            -- Assets:Inventory:*, Income:ItemsLooted:*, Expense:*, Equity:*
+            -- Assets:Inventory:*, Income:ItemsLooted:*, Equity:*
         }
     }
 end
 
 -- Post a double-entry transaction
 -- @param session: Current session object
--- @param debitAccount: Account to debit (increase)
--- @param creditAccount: Account to credit (increase on opposite side)
+-- @param debitAccount: Account to debit
+-- @param creditAccount: Account to credit
 -- @param amountCopper: Amount in copper (integer, must be positive)
 -- @param meta: Optional metadata table {tags = {...}, ...}
+--
+-- Accounting Rules:
+-- - Assets/Expenses: Debit increases, Credit decreases
+-- - Income/Equity: Debit decreases, Credit increases
 function GoldPH_Ledger:Post(session, debitAccount, creditAccount, amountCopper, meta)
     if not session or not session.ledger then
         error("GoldPH_Ledger:Post - Invalid session")
@@ -50,9 +58,20 @@ function GoldPH_Ledger:Post(session, debitAccount, creditAccount, amountCopper, 
         session.ledger.balances[creditAccount] = 0
     end
 
-    -- Apply double-entry
-    session.ledger.balances[debitAccount] = session.ledger.balances[debitAccount] + amountCopper
-    session.ledger.balances[creditAccount] = session.ledger.balances[creditAccount] + amountCopper
+    -- Apply double-entry with proper debit/credit rules
+    -- Debit: Add to Assets/Expenses, Subtract from Income/Equity
+    if debitAccount:match("^Assets:") or debitAccount:match("^Expense:") then
+        session.ledger.balances[debitAccount] = session.ledger.balances[debitAccount] + amountCopper
+    else -- Income or Equity
+        session.ledger.balances[debitAccount] = session.ledger.balances[debitAccount] - amountCopper
+    end
+
+    -- Credit: Subtract from Assets/Expenses, Add to Income/Equity
+    if creditAccount:match("^Assets:") or creditAccount:match("^Expense:") then
+        session.ledger.balances[creditAccount] = session.ledger.balances[creditAccount] - amountCopper
+    else -- Income or Equity
+        session.ledger.balances[creditAccount] = session.ledger.balances[creditAccount] + amountCopper
+    end
 
     -- Optional: Store posting for audit trail (Phase 1 MVP: skip this)
     -- if GoldPH_DB.debug.verbose then
@@ -104,24 +123,37 @@ function GoldPH_Ledger:FormatMoney(copper)
         return "0c"
     end
 
-    local gold = math.floor(copper / 10000)
-    local silver = math.floor((copper % 10000) / 100)
-    local copperRem = copper % 100
+    -- Handle negative values
+    local isNegative = copper < 0
+    local absCopper = math.abs(copper)
+
+    local gold = math.floor(absCopper / 10000)
+    local silver = math.floor((absCopper % 10000) / 100)
+    local copperRem = absCopper % 100
+
+    local result = ""
 
     if gold > 0 then
         if silver > 0 or copperRem > 0 then
-            return string.format("%dg %ds %dc", gold, silver, copperRem)
+            result = string.format("%dg %ds %dc", gold, silver, copperRem)
         else
-            return string.format("%dg", gold)
+            result = string.format("%dg", gold)
         end
     elseif silver > 0 then
         if copperRem > 0 then
-            return string.format("%ds %dc", silver, copperRem)
+            result = string.format("%ds %dc", silver, copperRem)
         else
-            return string.format("%ds", silver)
+            result = string.format("%ds", silver)
         end
     else
-        return string.format("%dc", copperRem)
+        result = string.format("%dc", copperRem)
+    end
+
+    -- Add negative sign if needed
+    if isNegative then
+        return "-" .. result
+    else
+        return result
     end
 end
 

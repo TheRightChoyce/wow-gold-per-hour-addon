@@ -53,7 +53,7 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, addonName)
         -- Initialize event system
         GoldPH_Events:Initialize(GoldPH_MainFrame)
 
-        print("[GoldPH] Version 0.1.0-phase1 loaded. Type /goldph help for commands.")
+        print("[GoldPH] Version 0.2.0-phase2 loaded. Type /goldph help for commands.")
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Check if there's an active session on reload
         if GoldPH_DB.activeSession then
@@ -84,6 +84,7 @@ local function ShowHelp()
     print("|cff00ff00=== Test Commands ===|r")
     print("|cffffff00/goldph test run|r - Run automated test suite")
     print("|cffffff00/goldph test loot <copper>|r - Inject looted coin event")
+    print("|cffffff00/goldph test repair <copper>|r - Inject repair cost (Phase 2+)")
     print("======================")
 end
 
@@ -175,8 +176,18 @@ local function HandleCommand(msg)
                     print("[GoldPH] " .. (message or "Failed to inject loot"))
                 end
             end
+        elseif subCmd == "repair" then
+            local copper = tonumber(args[3])
+            if not copper then
+                print("[GoldPH] Usage: /goldph test repair <copper>")
+            else
+                local ok, message = GoldPH_Events:InjectRepair(copper)
+                if not ok then
+                    print("[GoldPH] " .. (message or "Failed to inject repair"))
+                end
+            end
         else
-            print("[GoldPH] Test commands: run, loot <copper>")
+            print("[GoldPH] Test commands: run, loot <copper>, repair <copper>")
         end
 
     -- Help

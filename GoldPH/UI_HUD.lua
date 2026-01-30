@@ -14,7 +14,7 @@ local UPDATE_INTERVAL = 1.0 -- Update every 1 second
 function GoldPH_HUD:Initialize()
     -- Create main frame
     hudFrame = CreateFrame("Frame", "GoldPH_HUD_Frame", UIParent)
-    hudFrame:SetSize(200, 100)
+    hudFrame:SetSize(220, 130)  -- Increased size for Phase 2 expenses
     hudFrame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -50, -200)
 
     -- Make it movable
@@ -67,6 +67,27 @@ function GoldPH_HUD:Initialize()
     cashPerHourText:SetJustifyH("LEFT")
     hudFrame.cashPerHourText = cashPerHourText
 
+    -- Phase 2: Income
+    local incomeText = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    incomeText:SetPoint("TOPLEFT", 10, -85)
+    incomeText:SetText("Income: 0c")
+    incomeText:SetJustifyH("LEFT")
+    hudFrame.incomeText = incomeText
+
+    -- Phase 2: Expenses
+    local expensesText = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    expensesText:SetPoint("TOPLEFT", 10, -100)
+    expensesText:SetText("Expenses: 0c")
+    expensesText:SetJustifyH("LEFT")
+    hudFrame.expensesText = expensesText
+
+    -- Phase 2: Net
+    local netText = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    netText:SetPoint("TOPLEFT", 10, -115)
+    netText:SetText("Net: 0c")
+    netText:SetJustifyH("LEFT")
+    hudFrame.netText = netText
+
     -- Update loop
     hudFrame:SetScript("OnUpdate", function(self, elapsed)
         updateTimer = updateTimer + elapsed
@@ -106,6 +127,12 @@ function GoldPH_HUD:Update()
     hudFrame.timeText:SetText(string.format("Time: %s", GoldPH_SessionManager:FormatDuration(metrics.durationSec)))
     hudFrame.cashText:SetText(string.format("Cash: %s", GoldPH_Ledger:FormatMoney(metrics.cash)))
     hudFrame.cashPerHourText:SetText(string.format("Cash/hr: %s", GoldPH_Ledger:FormatMoney(metrics.cashPerHour)))
+
+    -- Phase 2: Income/Expense breakdown
+    hudFrame.incomeText:SetText(string.format("Income: %s", GoldPH_Ledger:FormatMoney(metrics.income)))
+    hudFrame.expensesText:SetText(string.format("Expenses: %s", GoldPH_Ledger:FormatMoney(metrics.expenses)))
+    local netCash = metrics.income - metrics.expenses
+    hudFrame.netText:SetText(string.format("Net: %s", GoldPH_Ledger:FormatMoney(netCash)))
 
     -- Phase 3+: Add expected inventory and total economic value
     -- hudFrame.expectedText:SetText(...)
