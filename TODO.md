@@ -177,9 +177,40 @@ Session = {
 
 ---
 
+## Data Model & Architecture
+
+### 10. Character-Scoped Sessions
+**Issue**: Sessions are currently account-wide (shared across all characters). Character A's farming session appears in Character B's history.
+
+**Current Behavior**:
+- `GoldPH_DB` uses `SavedVariables` (account-wide)
+- All characters on the account share the same session history
+- Active session from one character persists when switching to another
+
+**Expected Behavior**:
+- Each character should have their own independent session history
+- Character A's sessions should not appear for Character B
+- Switching characters should not share or interfere with sessions
+
+**Solution Approach**:
+- Use `SavedVariablesPerCharacter` in `.toc` instead of `SavedVariables`
+- Or: Manually scope data by character name + realm in SavedVariables structure
+- Structure: `GoldPH_DB[realmName][characterName] = { sessions, activeSession, ... }`
+
+**Files to Modify**:
+- `GoldPH.toc` - Change to `SavedVariablesPerCharacter` (simplest)
+- Or `init.lua` - Add character scoping logic if keeping account-wide DB
+- Migration: Need to handle existing sessions (or accept data loss)
+
+**Priority**: HIGH (architectural issue, easier to fix now than later)
+
+**Note**: SavedVariablesPerCharacter is the cleanest solution. Each character gets their own `GoldPH_DB`.
+
+---
+
 ## Data Validation & Safety
 
-### 10. Negative Cash Detection
+### 11. Negative Cash Detection
 **Issue**: If cash goes negative due to bugs, no warning
 
 **Solution**: Add invariant check for negative Assets:Cash, warn user
@@ -190,7 +221,7 @@ Session = {
 
 ---
 
-### 11. Session Data Backup
+### 12. Session Data Backup
 **Issue**: If SavedVariables corrupts, all history is lost
 
 **Solution**:
@@ -204,7 +235,7 @@ Session = {
 
 ---
 
-### 12. Repair Cost Validation
+### 13. Repair Cost Validation
 **Issue**: `GetRepairAllCost()` might return incorrect values in some cases
 
 **Solution**:
@@ -220,7 +251,7 @@ Session = {
 
 ## Performance
 
-### 13. HUD Update Throttling
+### 14. HUD Update Throttling
 **Issue**: HUD updates every 1 second, might be unnecessary
 
 **Solution**:
@@ -233,7 +264,7 @@ Session = {
 
 ---
 
-### 14. Ledger Balance Caching
+### 15. Ledger Balance Caching
 **Issue**: `GetBalance()` iterates through balances table on every call
 
 **Solution**: Cache frequently accessed balances (Assets:Cash, etc.)
@@ -246,7 +277,7 @@ Session = {
 
 ## Testing & Debug
 
-### 15. Test Data Cleanup
+### 16. Test Data Cleanup
 **Issue**: Test injections pollute active session data
 
 **Solution**:
@@ -259,7 +290,7 @@ Session = {
 
 ---
 
-### 16. Invariant Auto-Check Setting
+### 17. Invariant Auto-Check Setting
 **Issue**: Debug mode auto-checks are verbose, users might want auto-check without verbose logging
 
 **Solution**:
@@ -274,7 +305,7 @@ Session = {
 
 ## Future Phase Prep
 
-### 17. Item Cache Retry Logic (Phase 3 Prep)
+### 18. Item Cache Retry Logic (Phase 3 Prep)
 **Issue**: `GetItemInfo()` returns nil on first call, needs retry
 
 **Solution**:
@@ -288,7 +319,7 @@ Session = {
 
 ---
 
-### 18. FIFO Consumption Validation (Phase 4 Prep)
+### 19. FIFO Consumption Validation (Phase 4 Prep)
 **Issue**: FIFO consumption is complex and error-prone
 
 **Solution**:
@@ -304,7 +335,7 @@ Session = {
 
 ## Documentation
 
-### 19. In-Game Help Improvements
+### 20. In-Game Help Improvements
 **Issue**: `/goldph help` is long, hard to read
 
 **Solution**:
@@ -318,7 +349,7 @@ Session = {
 
 ---
 
-### 20. Tooltips for HUD
+### 21. Tooltips for HUD
 **Issue**: HUD fields don't explain what they mean
 
 **Solution**: Add tooltips on mouseover (if possible in WoW Classic)
@@ -331,21 +362,21 @@ Session = {
 
 ## Known Issues (Won't Fix / Out of Scope)
 
-### 21. Mail Items
+### 22. Mail Items
 **Issue**: Mailing items removes them from inventory but doesn't track it
 
 **Status**: Out of scope for now (future phase)
 
 ---
 
-### 22. Destroying Items
+### 23. Destroying Items
 **Issue**: Destroying items removes expected value but doesn't track it
 
 **Status**: Out of scope for now (future phase)
 
 ---
 
-### 23. Trading Items
+### 24. Trading Items
 **Issue**: Trading items to another player doesn't track the value change
 
 **Status**: Out of scope for now (future phase)
@@ -354,14 +385,15 @@ Session = {
 
 ## Implementation Priority
 
-**Must Fix Before Phase 3**:
-1. HUD visibility after relog (HIGH)
+**Must Fix Before Phase 4**:
+1. HUD visibility after relog (HIGH) - FIXED in v0.2.1-bugfix1
 2. Session time tracking during logout (HIGH)
+10. Character-scoped sessions (HIGH)
 
 **Nice to Have**:
 3. HUD position persistence (MEDIUM)
-10. Negative cash detection (MEDIUM)
-15. Test data cleanup (MEDIUM)
+11. Negative cash detection (MEDIUM)
+16. Test data cleanup (MEDIUM)
 
 **Future Enhancements**:
 - Everything else is LOW priority or nice-to-have
@@ -371,8 +403,11 @@ Session = {
 
 ## Notes
 
-- **Current Phase**: Phase 2 complete (Vendor Expenses)
-- **Next Phase**: Phase 3 (Item Looting & Valuation)
-- **Recommended**: Fix bugs #1 and #2 before starting Phase 3
+- **Current Phase**: Phase 3 complete (Item Looting & Valuation) - v0.3.1
+- **Next Phase**: Phase 4 (Vendor Sales & FIFO Reversals)
+- **Recommended**: Fix architectural issues (#2, #10) before Phase 4
+  - #2: Session time tracking (affects all metrics)
+  - #10: Character-scoped sessions (data model change)
+- Bug #1 (HUD visibility) fixed in v0.2.1-bugfix1
 - Many LOW priority items can be community contributions
 - Focus on core functionality first, polish later

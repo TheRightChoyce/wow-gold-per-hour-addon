@@ -431,5 +431,27 @@ function GoldPH_Debug:ShowHoldings()
     print(COLOR_YELLOW .. "\n=============================" .. COLOR_RESET)
 end
 
+-- Show available price sources
+function GoldPH_Debug:ShowPriceSources()
+    print(COLOR_YELLOW .. "=== Price Sources ===" .. COLOR_RESET)
+
+    local sources = GoldPH_PriceSources:GetAvailableSources()
+
+    if #sources == 0 then
+        print("  " .. COLOR_RED .. "No price sources available" .. COLOR_RESET)
+        print("  Using vendor prices only (conservative)")
+    else
+        print("  " .. COLOR_GREEN .. "Available sources:" .. COLOR_RESET)
+        for i, source in ipairs(sources) do
+            print(string.format("    %d. %s", i, source))
+        end
+    end
+
+    print("\n  Priority order: Manual Overrides > Custom AH > TSM")
+    print("  Set manual override: /script GoldPH_DB.priceOverrides[itemID] = price")
+
+    print(COLOR_YELLOW .. "=====================" .. COLOR_RESET)
+end
+
 -- Export module
 _G.GoldPH_Debug = GoldPH_Debug

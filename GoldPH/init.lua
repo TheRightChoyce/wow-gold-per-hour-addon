@@ -54,7 +54,7 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, addonName)
         -- Initialize event system (registers additional events)
         GoldPH_Events:Initialize(GoldPH_MainFrame)
 
-        print("[GoldPH] Version 0.3.0 (Phase 3: Item Valuation) loaded. Type /goldph help for commands.")
+        print("[GoldPH] Version 0.3.2 (Per-Character Sessions) loaded. Type /goldph help for commands.")
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Ensure hudVisible setting exists (for existing SavedVariables)
         if GoldPH_DB.settings.hudVisible == nil then
@@ -92,6 +92,7 @@ local function ShowHelp()
     print("|cffffff00/goldph debug dump|r - Dump current session state")
     print("|cffffff00/goldph debug ledger|r - Show ledger balances")
     print("|cffffff00/goldph debug holdings|r - Show holdings (Phase 3+)")
+    print("|cffffff00/goldph debug prices|r - Show available price sources (TSM, Custom AH)")
     print("")
     print("|cff00ff00=== Test Commands ===|r")
     print("|cffffff00/goldph test run|r - Run automated test suite")
@@ -168,8 +169,10 @@ local function HandleCommand(msg)
             GoldPH_Debug:ShowLedger()
         elseif subCmd == "holdings" then
             GoldPH_Debug:ShowHoldings()
+        elseif subCmd == "prices" then
+            GoldPH_Debug:ShowPriceSources()
         else
-            print("[GoldPH] Debug commands: on, off, verbose, dump, ledger, holdings")
+            print("[GoldPH] Debug commands: on, off, verbose, dump, ledger, holdings, prices")
         end
 
     -- Test commands

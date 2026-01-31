@@ -2,11 +2,12 @@
 ## Title: GoldPH
 ## Notes: Session-based gold-per-hour tracking with double-ledger accounting (WoW Classic Anniversary)
 ## Author: Claude Code
-## Version: 0.3.0
-## SavedVariables: GoldPH_DB
+## Version: 0.3.2
+## SavedVariablesPerCharacter: GoldPH_DB
 
 # Core modules (load order matters)
 Ledger.lua
+PriceSources.lua
 Valuation.lua
 Holdings.lua
 SessionManager.lua

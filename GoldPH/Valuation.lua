@@ -132,16 +132,11 @@ function GoldPH_Valuation:GetVendorPrice(itemID)
     return vendorPrice or 0
 end
 
--- Get conservative AH price for an item (with manual overrides)
+-- Get conservative AH price for an item
+-- Delegates to PriceSources module for pluggable price data
 function GoldPH_Valuation:GetAHPrice(itemID)
-    -- Check for manual override first
-    if GoldPH_DB.priceOverrides and GoldPH_DB.priceOverrides[itemID] then
-        return GoldPH_DB.priceOverrides[itemID]
-    end
-
-    -- TODO Phase 3+: Integrate with TSM if available
-    -- For now, return 0 (prefer undercount to overestimate)
-    return 0
+    local price = GoldPH_PriceSources:GetAHPrice(itemID)
+    return price or 0
 end
 
 -- Get disenchant expected value (not implemented in MVP)
