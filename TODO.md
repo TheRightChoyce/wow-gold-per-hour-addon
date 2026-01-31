@@ -1,5 +1,37 @@
 # GoldPH - Todo List & Improvements
 
+## Missing Features (Current Phase Gaps)
+
+### 0. Flight Path Expense Tracking
+**Issue**: Taking a flight path doesn't add an expense to the session.
+
+**Current Behavior**:
+- Flight path costs are not tracked
+- Money is deducted but not recorded in ledger
+- No `Expense:Travel` account created
+
+**Expected Behavior**:
+- When taking a flight path, record the cost
+- Post: Dr `Expense:Travel`, Cr `Assets:Cash`
+- Show travel expenses in HUD/metrics
+
+**Solution Approach** (Phase 5):
+- Register `TAXIMAP_OPENED` event to detect flight master interaction
+- On `TAXIMAP_OPENED`, store current money
+- Register `TAXIMAP_CLOSED` or detect money decrease
+- Calculate flight cost and post to `Expense:Travel`
+
+**Files to Modify**:
+- `Events.lua` - Add taxi event handlers
+- `Ledger.lua` - Add `Expense:Travel` account initialization
+- `UI_HUD.lua` - Display travel expenses in breakdown
+
+**Priority**: HIGH (Phase 5 feature, needed for complete expense tracking)
+
+**Status**: Not yet implemented (Phase 5 planned)
+
+---
+
 ## Critical Bugs (Fix Before Next Phase)
 
 ### 1. HUD Visibility After Relog
@@ -403,11 +435,17 @@ Session = {
 
 ## Notes
 
-- **Current Phase**: Phase 3 complete (Item Looting & Valuation) - v0.3.1
-- **Next Phase**: Phase 4 (Vendor Sales & FIFO Reversals)
-- **Recommended**: Fix architectural issues (#2, #10) before Phase 4
-  - #2: Session time tracking (affects all metrics)
-  - #10: Character-scoped sessions (data model change)
-- Bug #1 (HUD visibility) fixed in v0.2.1-bugfix1
+- **Current Phase**: Phase 4 complete (Vendor Sales & FIFO Reversals) - v0.4.1
+- **Next Phase**: Phase 5 (Quest Rewards & Travel Expenses)
+- **Completed Phases**:
+  - Phase 1: Foundation - Looted Gold Only (v0.1.0)
+  - Phase 2: Vendor Expenses (v0.2.0)
+  - Phase 3: Item Looting & Valuation (v0.3.1)
+  - Phase 4: Vendor Sales & FIFO Reversals (v0.4.1)
+- **Architectural fixes completed**:
+  - Bug #1 (HUD visibility) fixed in v0.2.1-bugfix1
+  - Bug #10 (Character-scoped sessions) fixed in v0.3.2
+- **Remaining architectural issue**:
+  - #2: Session time tracking during logout (HIGH priority)
 - Many LOW priority items can be community contributions
 - Focus on core functionality first, polish later

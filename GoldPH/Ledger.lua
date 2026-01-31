@@ -16,13 +16,17 @@ function GoldPH_Ledger:InitializeLedger(session)
 
             -- Income
             ["Income:LootedCoin"] = 0,
+            ["Income:VendorSales"] = 0,  -- Phase 4
 
             -- Expenses (Phase 2)
             ["Expense:Repairs"] = 0,
             ["Expense:VendorBuys"] = 0,
 
-            -- Note: Additional accounts will be added in later phases:
-            -- Assets:Inventory:*, Income:ItemsLooted:*, Equity:*
+            -- Equity (Phase 4)
+            ["Equity:InventoryRealization"] = 0,
+
+            -- Note: Additional accounts added dynamically in later phases:
+            -- Assets:Inventory:*, Income:ItemsLooted:*
         }
     }
 end

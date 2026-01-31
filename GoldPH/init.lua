@@ -54,7 +54,7 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, addonName)
         -- Initialize event system (registers additional events)
         GoldPH_Events:Initialize(GoldPH_MainFrame)
 
-        print("[GoldPH] Version 0.3.2 (Per-Character Sessions) loaded. Type /goldph help for commands.")
+        print("[GoldPH] Version 0.4.1 (Phase 4: Vendor Sales FIFO) loaded. Type /goldph help for commands.")
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Ensure hudVisible setting exists (for existing SavedVariables)
         if GoldPH_DB.settings.hudVisible == nil then
@@ -99,6 +99,7 @@ local function ShowHelp()
     print("|cffffff00/goldph test loot <copper>|r - Inject looted coin event")
     print("|cffffff00/goldph test repair <copper>|r - Inject repair cost (Phase 2+)")
     print("|cffffff00/goldph test lootitem <itemID> <count>|r - Inject looted item (Phase 3+)")
+    print("|cffffff00/goldph test vendoritem <itemID> <count>|r - Inject vendor sale (Phase 4+)")
     print("======================")
 end
 
@@ -213,8 +214,19 @@ local function HandleCommand(msg)
                     print("[GoldPH] " .. (message or "Failed to inject loot item"))
                 end
             end
+        elseif subCmd == "vendoritem" then
+            local itemID = tonumber(args[3])
+            local count = tonumber(args[4]) or 1
+            if not itemID then
+                print("[GoldPH] Usage: /goldph test vendoritem <itemID> <count>")
+            else
+                local ok, message = GoldPH_Events:InjectVendorSale(itemID, count)
+                if not ok then
+                    print("[GoldPH] " .. (message or "Failed to inject vendor sale"))
+                end
+            end
         else
-            print("[GoldPH] Test commands: run, loot <copper>, repair <copper>, lootitem <itemID> <count>")
+            print("[GoldPH] Test commands: run, loot <copper>, repair <copper>, lootitem <itemID> <count>, vendoritem <itemID> <count>")
         end
 
     -- Help
