@@ -143,7 +143,7 @@ function GoldPH_Events:OnLootedItem(message)
     end
 
     -- Get item info (may be nil if not cached yet)
-    local itemName, quality, itemClass, vendorPrice = GoldPH_Valuation:GetItemInfo(itemID)
+    local itemName, quality, itemClass, itemSubClass, vendorPrice = GoldPH_Valuation:GetItemInfo(itemID)
 
     if not itemName then
         -- Item not in cache yet, defer processing
@@ -155,7 +155,7 @@ function GoldPH_Events:OnLootedItem(message)
     end
 
     -- Classify item into bucket
-    local bucket = GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass)
+    local bucket = GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass, itemSubClass)
 
     if bucket == "other" then
         -- Not tracked
@@ -458,7 +458,7 @@ function GoldPH_Events:OnBagUpdateAtMerchant()
 
         if countSold > 0 then
             -- Item was sold, process it
-            local itemName, _, quality, _, _, _, _, _, _, _, vendorSellEach, itemClass = GetItemInfo(itemID)
+            local itemName, _, quality, _, _, _, _, _, _, _, vendorSellEach, itemClass, itemSubClass = GetItemInfo(itemID)
 
             if itemName and vendorSellEach and vendorSellEach > 0 then
                 -- Calculate expected proceeds for this item
@@ -467,7 +467,7 @@ function GoldPH_Events:OnBagUpdateAtMerchant()
                 -- Only process if this accounts for the money gained
                 -- (handles case where multiple items sold at once)
                 if expectedProceeds <= moneyGained then
-                    local bucket = GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass)
+                    local bucket = GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass, itemSubClass)
                     self:ProcessVendorSale(session, itemID, itemName, countSold, expectedProceeds, bucket)
 
                     -- Update money tracking
@@ -504,7 +504,7 @@ function GoldPH_Events:OnUseContainerItem(bag, slot)
         return
     end
 
-    local itemName, _, quality, _, _, _, _, _, _, _, vendorSellEach, itemClass = GetItemInfo(itemID)
+    local itemName, _, quality, _, _, _, _, _, _, _, vendorSellEach, itemClass, itemSubClass = GetItemInfo(itemID)
     if not itemName then
         return
     end
@@ -517,7 +517,7 @@ function GoldPH_Events:OnUseContainerItem(bag, slot)
     local vendorProceeds = itemCount * vendorSellEach
 
     -- Classify item to get bucket
-    local bucket = GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass)
+    local bucket = GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass, itemSubClass)
 
     -- Process vendor sale
     self:ProcessVendorSale(session, itemID, itemName, itemCount, vendorProceeds, bucket)
@@ -595,14 +595,14 @@ function GoldPH_Events:InjectLootItem(itemID, count)
     end
 
     -- Get item info (may fail if not cached)
-    local itemName, quality, itemClass, vendorPrice = GoldPH_Valuation:GetItemInfo(itemID)
+    local itemName, quality, itemClass, itemSubClass, vendorPrice = GoldPH_Valuation:GetItemInfo(itemID)
 
     if not itemName then
         return false, string.format("Item not in cache: itemID=%d (try mousing over it first)", itemID)
     end
 
     -- Classify and value item
-    local bucket = GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass)
+    local bucket = GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass, itemSubClass)
 
     if bucket == "other" then
         return false, string.format("Item not tracked: %s (bucket=other)", itemName)
@@ -658,7 +658,7 @@ function GoldPH_Events:InjectVendorSale(itemID, count)
     end
 
     -- Get item info
-    local itemName, _, quality, _, _, _, _, _, _, _, vendorSellEach, itemClass = GetItemInfo(itemID)
+    local itemName, _, quality, _, _, _, _, _, _, _, vendorSellEach, itemClass, itemSubClass = GetItemInfo(itemID)
 
     if not itemName then
         return false, string.format("Item not in cache: itemID=%d (try mousing over it first)", itemID)
@@ -678,7 +678,7 @@ function GoldPH_Events:InjectVendorSale(itemID, count)
     local vendorProceeds = count * vendorSellEach
 
     -- Classify item
-    local bucket = GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass)
+    local bucket = GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass, itemSubClass)
 
     -- Process vendor sale
     self:ProcessVendorSale(session, itemID, itemName, count, vendorProceeds, bucket)

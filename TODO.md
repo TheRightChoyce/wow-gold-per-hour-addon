@@ -2,7 +2,34 @@
 
 ## Missing Features (Current Phase Gaps)
 
-### 0. Flight Path Expense Tracking
+### 0. Deviate Fish Misclassified as Vendor Trash
+**Issue**: Deviate Fish (ID: 6522) and other fish are incorrectly tracked as vendor trash instead of gathering materials.
+
+**Current Behavior**:
+- Fish are consumables (itemClass = 0), not Trade Goods (itemClass = 7)
+- White consumables default to `vendor_trash` bucket
+- Expected value = vendor price (very low) instead of AH price
+
+**Expected Behavior**:
+- Fish should be classified as `gathering` materials
+- Use AH price for valuation (with friction multiplier)
+- Properly reflect their market value
+
+**Solution Approach**:
+- Add fish detection via item subclass (itemSubClass = 1 for fish in Consumables)
+- Or maintain a whitelist of valuable fish item IDs
+- Classify matching items as `gathering` instead of `vendor_trash`
+
+**Files to Modify**:
+- `Valuation.lua` - Add fish detection to ClassifyItem()
+
+**Priority**: MEDIUM (affects fishing gold/hour accuracy)
+
+**Status**: FIXED in v0.4.2
+
+---
+
+### 1. Flight Path Expense Tracking
 **Issue**: Taking a flight path doesn't add an expense to the session.
 
 **Current Behavior**:

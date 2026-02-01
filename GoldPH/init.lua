@@ -54,7 +54,7 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, addonName)
         -- Initialize event system (registers additional events)
         GoldPH_Events:Initialize(GoldPH_MainFrame)
 
-        print("[GoldPH] Version 0.4.1 (Phase 4: Vendor Sales FIFO) loaded. Type /goldph help for commands.")
+        print("[GoldPH] Version 0.4.2 (Fish classification fix) loaded. Type /goldph help for commands.")
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Ensure hudVisible setting exists (for existing SavedVariables)
         if GoldPH_DB.settings.hudVisible == nil then

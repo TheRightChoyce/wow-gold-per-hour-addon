@@ -18,7 +18,12 @@ local QUALITY_RARE = 3      -- Blue
 local QUALITY_EPIC = 4      -- Purple
 
 -- Item class constants (WoW Classic)
+local CLASS_CONSUMABLE = 0
 local CLASS_TRADE_GOODS = 7
+
+-- Item subclass constants
+local SUBCLASS_CONSUMABLE_FOOD_DRINK = 0  -- Food & Drink (includes fish when cooked)
+local SUBCLASS_CONSUMABLE_FISH = 1        -- Fish (raw fish items)
 
 -- Friction multiplier for AH values (to account for fees and risk)
 local AH_FRICTION = 0.85
@@ -32,8 +37,9 @@ local AH_FRICTION = 0.85
 -- @param itemName: Item name (optional, used for lockbox detection)
 -- @param quality: Item quality (0-4)
 -- @param itemClass: Item class (from GetItemInfo)
+-- @param itemSubClass: Item subclass (optional, from GetItemInfo)
 -- @return bucket: "vendor_trash" | "rare_multi" | "gathering" | "container_lockbox" | "other"
-function GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass)
+function GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass, itemSubClass)
     -- Check for lockbox by name pattern
     if itemName and self:IsLockbox(itemName) then
         return "container_lockbox"
@@ -47,8 +53,11 @@ function GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass)
         -- Green/Blue/Purple -> rare_multi
         return "rare_multi"
     elseif quality == QUALITY_COMMON then
-        -- White items: check if trade goods (gathering), else vendor_trash
+        -- White items: check if trade goods, fish, or other valuable materials
         if itemClass == CLASS_TRADE_GOODS then
+            return "gathering"
+        elseif self:IsFish(itemID, itemName, itemClass, itemSubClass) then
+            -- Fish are valuable gathering materials even though they're consumables
             return "gathering"
         else
             return "vendor_trash"
@@ -57,6 +66,84 @@ function GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass)
 
     -- Default: other (not tracked)
     return "other"
+end
+
+-- Known fish item IDs (valuable fish that should be treated as gathering materials)
+local FISH_ITEM_IDS = {
+    -- Classic fish
+    [6522] = true,   -- Deviate Fish
+    [6359] = true,   -- Firefin Snapper
+    [6358] = true,   -- Oily Blackmouth
+    [13422] = true,  -- Stonescale Eel
+    [13888] = true,  -- Darkclaw Lobster
+    [13889] = true,  -- Raw Whitescale Salmon
+    [13893] = true,  -- Large Raw Mightfish
+    [6317] = true,   -- Raw Loch Frenzy
+    [6361] = true,   -- Raw Rainbow Fin Albacore
+    [6362] = true,   -- Raw Rockscale Cod
+    [8365] = true,   -- Raw Mithril Head Trout
+    [13754] = true,  -- Raw Glossy Mightfish
+    [13755] = true,  -- Winter Squid
+    [13756] = true,  -- Raw Summer Bass
+    [13758] = true,  -- Raw Redgill
+    [13759] = true,  -- Raw Nightfin Snapper
+    [13760] = true,  -- Raw Sunscale Salmon
+    [21153] = true,  -- Raw Greater Sagefish
+    [6289] = true,   -- Raw Longjaw Mud Snapper
+    [6291] = true,   -- Raw Brilliant Smallfish
+    [6303] = true,   -- Raw Slitherskin Mackerel
+    [6308] = true,   -- Raw Bristle Whisker Catfish
+}
+
+-- Check if an item is a fish (valuable for AH, not just vendor)
+function GoldPH_Valuation:IsFish(itemID, itemName, itemClass, itemSubClass)
+    -- Check explicit fish whitelist first (most reliable)
+    if itemID and FISH_ITEM_IDS[itemID] then
+        return true
+    end
+
+    -- Check by item subclass (fish are Consumable class with Fish subclass in some versions)
+    if itemClass == CLASS_CONSUMABLE and itemSubClass == SUBCLASS_CONSUMABLE_FISH then
+        return true
+    end
+
+    -- Check by name pattern as fallback
+    if itemName then
+        local lowerName = itemName:lower()
+        -- Common fish name patterns (raw fish typically have "Raw" prefix or fish-like names)
+        if lowerName:find("^raw ") and (
+            lowerName:find("fish") or
+            lowerName:find("snapper") or
+            lowerName:find("eel") or
+            lowerName:find("salmon") or
+            lowerName:find("trout") or
+            lowerName:find("squid") or
+            lowerName:find("lobster") or
+            lowerName:find("bass") or
+            lowerName:find("mightfish") or
+            lowerName:find("sagefish") or
+            lowerName:find("catfish") or
+            lowerName:find("mackerel") or
+            lowerName:find("albacore") or
+            lowerName:find("cod") or
+            lowerName:find("redgill") or
+            lowerName:find("nightfin") or
+            lowerName:find("sunscale")
+        ) then
+            return true
+        end
+        -- Special named fish without "Raw" prefix
+        if lowerName == "deviate fish" or
+           lowerName == "firefin snapper" or
+           lowerName == "oily blackmouth" or
+           lowerName == "stonescale eel" or
+           lowerName == "winter squid" or
+           lowerName == "darkclaw lobster" then
+            return true
+        end
+    end
+
+    return false
 end
 
 -- Check if an item is a lockbox based on name
@@ -169,16 +256,16 @@ end
 
 -- Get item info with retry logic for cache misses
 -- @param itemID: Item ID
--- @return name, quality, itemClass, vendorPrice (or nil if not cached yet)
+-- @return name, quality, itemClass, itemSubClass, vendorPrice (or nil if not cached yet)
 function GoldPH_Valuation:GetItemInfo(itemID)
-    local name, _, quality, _, _, _, _, _, _, _, vendorPrice, itemClassID = GetItemInfo(itemID)
+    local name, _, quality, _, _, _, _, _, _, _, vendorPrice, itemClassID, itemSubClassID = GetItemInfo(itemID)
 
     if not name then
         -- Item not in cache yet, will need to retry
-        return nil, nil, nil, nil
+        return nil, nil, nil, nil, nil
     end
 
-    return name, quality, itemClassID, vendorPrice
+    return name, quality, itemClassID, itemSubClassID, vendorPrice
 end
 
 -- Export module
