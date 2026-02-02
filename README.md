@@ -2,7 +2,7 @@
 
 A session-based gold tracking addon for World of Warcraft Classic Anniversary using double-ledger accounting to prevent double counting.
 
-**Current Version**: 0.2.0-phase2 (Foundation + Vendor Expenses)
+**Current Version**: 0.5.0 (Phase 5: Quest Rewards & Travel Expenses)
 
 ## Features (Phase 1 & 2)
 
@@ -104,9 +104,9 @@ This addon is being developed in 7 incremental phases:
 
 - **Phase 1** (✅ Complete): Looted gold tracking + debug system
 - **Phase 2** (✅ Complete): Vendor expenses (repairs, purchases)
-- **Phase 3** (Planned): Item looting & valuation
-- **Phase 4** (Planned): Vendor sales with FIFO reversals (prevents double counting)
-- **Phase 5** (Planned): Quest rewards & travel expenses
+- **Phase 3** (✅ Complete): Item looting & valuation
+- **Phase 4** (✅ Complete): Vendor sales with FIFO reversals (prevents double counting)
+- **Phase 5** (✅ Complete): Quest rewards & travel expenses
 - **Phase 6** (Planned): Rogue pickpocketing & lockboxes
 - **Phase 7** (Planned): Gathering nodes & UI polish
 
@@ -183,10 +183,10 @@ GoldPH/
 
 This addon is developed incrementally following a multi-phase plan. Each phase builds on the previous:
 1. Foundation (Phase 1) ✅
-2. Expenses (Phase 2)
-3. Item valuation (Phase 3)
-4. Vendor sales with FIFO (Phase 4) - **Critical for no double counting**
-5. Quest/Travel (Phase 5)
+2. Expenses (Phase 2) ✅
+3. Item valuation (Phase 3) ✅
+4. Vendor sales with FIFO (Phase 4) ✅ - **Critical for no double counting**
+5. Quest/Travel (Phase 5) ✅
 6. Pickpocketing (Phase 6)
 7. Gathering & UI polish (Phase 7)
 

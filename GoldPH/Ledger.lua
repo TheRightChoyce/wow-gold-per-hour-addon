@@ -21,6 +21,10 @@ function GoldPH_Ledger:InitializeLedger(session)
             -- Expenses (Phase 2)
             ["Expense:Repairs"] = 0,
             ["Expense:VendorBuys"] = 0,
+            ["Expense:Travel"] = 0,  -- Phase 5
+
+            -- Income (Phase 5)
+            ["Income:Quest"] = 0,
 
             -- Equity (Phase 4)
             ["Equity:InventoryRealization"] = 0,

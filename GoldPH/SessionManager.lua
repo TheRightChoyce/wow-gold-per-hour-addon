@@ -98,7 +98,11 @@ function GoldPH_SessionManager:GetMetrics(session)
     -- Phase 2: Expense breakdown
     local expenseRepairs = GoldPH_Ledger:GetBalance(session, "Expense:Repairs")
     local expenseVendorBuys = GoldPH_Ledger:GetBalance(session, "Expense:VendorBuys")
-    local totalExpenses = expenseRepairs + expenseVendorBuys
+    local expenseTravel = GoldPH_Ledger:GetBalance(session, "Expense:Travel")  -- Phase 5
+    local totalExpenses = expenseRepairs + expenseVendorBuys + expenseTravel
+
+    -- Phase 5: Quest income
+    local incomeQuest = GoldPH_Ledger:GetBalance(session, "Income:Quest")
 
     -- Phase 3: Expected inventory value
     local invVendorTrash = GoldPH_Ledger:GetBalance(session, "Assets:Inventory:VendorTrash")
@@ -129,6 +133,8 @@ function GoldPH_SessionManager:GetMetrics(session)
         expenses = totalExpenses,
         expenseRepairs = expenseRepairs,
         expenseVendorBuys = expenseVendorBuys,
+        expenseTravel = expenseTravel,  -- Phase 5
+        incomeQuest = incomeQuest,  -- Phase 5
 
         -- Phase 3: Expected inventory value
         expectedInventory = expectedInventory,

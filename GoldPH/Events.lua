@@ -41,7 +41,11 @@ local state = {
     -- Phase 2: Merchant tracking
     merchantOpen = false,
 
-    -- Phase 5+: taxiOpen
+    -- Phase 5: Taxi tracking
+    taxiOpen = false,
+    moneyAtTaxiOpen = nil,
+    taxiCostProcessed = false,
+
     -- Phase 6+: pickpocketActiveUntil, openingLockboxUntil, etc.
 }
 
@@ -53,7 +57,10 @@ function GoldPH_Events:Initialize(frame)
     frame:RegisterEvent("MERCHANT_CLOSED")
     frame:RegisterEvent("CHAT_MSG_LOOT")  -- Phase 3
     frame:RegisterEvent("BAG_UPDATE")     -- Phase 4 (vendor sale detection)
-    -- Phase 5+: TAXIMAP_OPENED, TAXIMAP_CLOSED, QUEST_TURNED_IN, etc.
+    frame:RegisterEvent("PLAYER_MONEY")   -- Phase 5 (monitor money changes for taxi)
+    frame:RegisterEvent("TAXIMAP_OPENED") -- Phase 5
+    frame:RegisterEvent("TAXIMAP_CLOSED") -- Phase 5
+    frame:RegisterEvent("QUEST_TURNED_IN") -- Phase 5
 
     -- Note: We do NOT set OnEvent handler here - init.lua maintains control
     -- and will route events to us via GoldPH_Events:OnEvent()
@@ -66,6 +73,9 @@ function GoldPH_Events:Initialize(frame)
 
     -- Hook vendor sales (Phase 4)
     self:HookVendorSales()
+    
+    -- Hook taxi node selection (Phase 5)
+    self:HookTaxiFunctions()
 end
 
 -- Main event dispatcher
@@ -80,8 +90,15 @@ function GoldPH_Events:OnEvent(event, ...)
         self:OnMerchantClosed()
     elseif event == "BAG_UPDATE" then
         self:OnBagUpdateAtMerchant()
+    elseif event == "PLAYER_MONEY" then
+        self:OnPlayerMoney()
+    elseif event == "TAXIMAP_OPENED" then
+        self:OnTaxiMapOpened()
+    elseif event == "TAXIMAP_CLOSED" then
+        self:OnTaxiMapClosed()
+    elseif event == "QUEST_TURNED_IN" then
+        self:OnQuestTurnedIn(...)
     end
-    -- Phase 5+: Handle other events
 end
 
 -- Handle CHAT_MSG_MONEY event (looted coin)
@@ -332,6 +349,129 @@ function GoldPH_Events:OnMerchantClosed()
     end
 end
 
+--------------------------------------------------
+-- Phase 5: Travel (Flight Path) Expense Tracking
+--------------------------------------------------
+
+-- Handle PLAYER_MONEY event (monitor for taxi cost deduction)
+function GoldPH_Events:OnPlayerMoney()
+    -- Update money tracking
+    local currentMoney = GetMoney()
+    
+    -- Debug: Always log money changes when taxi is open
+    if state.taxiOpen and GoldPH_DB.debug.verbose then
+        print(string.format("[GoldPH] PLAYER_MONEY: taxiOpen=%s, moneyAtTaxiOpen=%s, currentMoney=%s", 
+            tostring(state.taxiOpen), 
+            state.moneyAtTaxiOpen and GoldPH_Ledger:FormatMoney(state.moneyAtTaxiOpen) or "nil",
+            GoldPH_Ledger:FormatMoney(currentMoney)))
+    end
+    
+    -- Check if taxi map is open and money decreased (flight cost deducted)
+    -- Only process if we haven't already recorded it via TakeTaxiNode hook
+    if state.taxiOpen and state.moneyAtTaxiOpen and not state.taxiCostProcessed and state.moneyAtTaxiOpen > currentMoney then
+        local session = GoldPH_SessionManager:GetActiveSession()
+        if session then
+            local cost = state.moneyAtTaxiOpen - currentMoney
+            self:RecordTaxiCost(session, cost, "PLAYER_MONEY")
+        end
+    end
+    
+    -- Update money tracking for future events
+    state.moneyLast = currentMoney
+end
+
+-- Handle TAXIMAP_OPENED event
+function GoldPH_Events:OnTaxiMapOpened()
+    state.taxiOpen = true
+    state.moneyAtTaxiOpen = GetMoney()
+    state.taxiCostProcessed = false  -- Track if we've already recorded the cost
+
+    if GoldPH_DB.debug.verbose then
+        print("[GoldPH] TAXIMAP_OPENED: money=" .. GoldPH_Ledger:FormatMoney(state.moneyAtTaxiOpen))
+    end
+end
+
+-- Handle TAXIMAP_CLOSED event
+function GoldPH_Events:OnTaxiMapClosed()
+    if GoldPH_DB.debug.verbose then
+        print(string.format("[GoldPH] TAXIMAP_CLOSED: taxiOpen=%s, moneyAtTaxiOpen=%s, costProcessed=%s",
+            tostring(state.taxiOpen),
+            state.moneyAtTaxiOpen and GoldPH_Ledger:FormatMoney(state.moneyAtTaxiOpen) or "nil",
+            tostring(state.taxiCostProcessed)))
+    end
+    
+    -- Flight cost should already be captured via PLAYER_MONEY or TakeTaxiNode hook
+    -- But check one more time in case those didn't fire (edge case)
+    if state.taxiOpen and state.moneyAtTaxiOpen and not state.taxiCostProcessed then
+        local session = GoldPH_SessionManager:GetActiveSession()
+        if session then
+            local currentMoney = GetMoney()
+            local cost = state.moneyAtTaxiOpen - currentMoney
+
+            -- Only post expense if cost > 0
+            if cost > 0 then
+                -- Post double-entry: Dr Expense:Travel, Cr Assets:Cash
+                GoldPH_Ledger:Post(session, "Expense:Travel", "Assets:Cash", cost)
+
+                if GoldPH_DB.debug.verbose then
+                    print(string.format("[GoldPH] Flight cost (fallback on TAXIMAP_CLOSED): %s", GoldPH_Ledger:FormatMoney(cost)))
+                end
+
+                -- Run invariants if debug mode enabled
+                if GoldPH_DB.debug.enabled then
+                    GoldPH_Debug:ValidateInvariants(session)
+                end
+
+                -- Update HUD
+                GoldPH_HUD:Update()
+                
+                state.taxiCostProcessed = true
+            end
+        end
+    end
+
+    -- Clear taxi state
+    state.taxiOpen = false
+    state.moneyAtTaxiOpen = nil
+    state.taxiCostProcessed = nil
+end
+
+--------------------------------------------------
+-- Phase 5: Quest Gold Income Tracking
+--------------------------------------------------
+
+-- Handle QUEST_TURNED_IN event
+-- @param questID: Quest ID
+-- @param xpReward: Experience reward (unused)
+-- @param moneyReward: Money reward in copper
+function GoldPH_Events:OnQuestTurnedIn(questID, xpReward, moneyReward)
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        return -- No active session
+    end
+
+    -- Only process if quest gave money reward
+    if not moneyReward or moneyReward <= 0 then
+        return
+    end
+
+    -- Post double-entry: Dr Assets:Cash, Cr Income:Quest
+    GoldPH_Ledger:Post(session, "Assets:Cash", "Income:Quest", moneyReward)
+
+    if GoldPH_DB.debug.verbose then
+        print(string.format("[GoldPH] Quest reward: %s (Quest ID: %d)", 
+            GoldPH_Ledger:FormatMoney(moneyReward), questID))
+    end
+
+    -- Run invariants if debug mode enabled
+    if GoldPH_DB.debug.enabled then
+        GoldPH_Debug:ValidateInvariants(session)
+    end
+
+    -- Update HUD
+    GoldPH_HUD:Update()
+end
+
 -- Hook repair functions to track costs
 function GoldPH_Events:HookRepairFunctions()
     -- Hook RepairAllItems (repair all button)
@@ -341,6 +481,81 @@ function GoldPH_Events:HookRepairFunctions()
 
     -- Note: We could also hook individual item repairs via UseContainerItem
     -- but RepairAllItems is the most common use case for Phase 2
+end
+
+-- Hook taxi functions to track flight costs (Phase 5)
+function GoldPH_Events:HookTaxiFunctions()
+    -- Hook TakeTaxiNode - called when player selects a destination
+    -- This fires BEFORE the money is deducted, so we capture money state here
+    if TakeTaxiNode then
+        hooksecurefunc("TakeTaxiNode", function(nodeIndex)
+            self:OnTakeTaxiNode(nodeIndex)
+        end)
+    end
+end
+
+-- Handle TakeTaxiNode hook (when player clicks a destination)
+function GoldPH_Events:OnTakeTaxiNode(nodeIndex)
+    -- Only process if taxi map was open (we tracked the initial money)
+    if not state.taxiOpen or not state.moneyAtTaxiOpen or state.taxiCostProcessed then
+        return
+    end
+
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        return
+    end
+
+    -- Get current money (should be before deduction, but check anyway)
+    local currentMoney = GetMoney()
+    
+    -- Try to get cost from API if available
+    local cost = nil
+    if TaxiNodeCost then
+        cost = TaxiNodeCost(nodeIndex)
+    end
+    
+    -- If we can't get cost from API, use money delta
+    if not cost or cost == 0 then
+        -- Wait a tiny bit for money to be deducted, then check
+        -- Use a frame update to check after the deduction happens
+        C_Timer.After(0.1, function()
+            local newMoney = GetMoney()
+            local deltaCost = state.moneyAtTaxiOpen - newMoney
+            if deltaCost > 0 then
+                self:RecordTaxiCost(session, deltaCost, "TakeTaxiNode (delta)")
+            end
+        end)
+    else
+        -- Use the API cost directly
+        self:RecordTaxiCost(session, cost, "TakeTaxiNode (API)")
+    end
+end
+
+-- Helper function to record taxi cost (prevents double-counting)
+function GoldPH_Events:RecordTaxiCost(session, cost, source)
+    if not session or not cost or cost <= 0 or state.taxiCostProcessed then
+        return
+    end
+
+    -- Post double-entry: Dr Expense:Travel, Cr Assets:Cash
+    GoldPH_Ledger:Post(session, "Expense:Travel", "Assets:Cash", cost)
+
+    if GoldPH_DB.debug.verbose then
+        print(string.format("[GoldPH] Flight cost recorded (%s): %s", source, GoldPH_Ledger:FormatMoney(cost)))
+    end
+
+    -- Run invariants if debug mode enabled
+    if GoldPH_DB.debug.enabled then
+        GoldPH_Debug:ValidateInvariants(session)
+    end
+
+    -- Update HUD
+    GoldPH_HUD:Update()
+    
+    -- Mark as processed to prevent double-counting
+    state.taxiCostProcessed = true
+    state.moneyAtTaxiOpen = nil  -- Clear so PLAYER_MONEY doesn't double-count
 end
 
 -- Handle repair all action

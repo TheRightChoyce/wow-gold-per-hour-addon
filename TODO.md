@@ -55,7 +55,7 @@
 
 **Priority**: HIGH (Phase 5 feature, needed for complete expense tracking)
 
-**Status**: Not yet implemented (Phase 5 planned)
+**Status**: IMPLEMENTED in v0.5.0 (Phase 5 complete)
 
 ---
 
@@ -85,6 +85,8 @@
 - SavedVariables structure
 
 **Priority**: HIGH
+
+**Status**: Fixed
 
 ---
 
@@ -462,13 +464,14 @@ Session = {
 
 ## Notes
 
-- **Current Phase**: Phase 4 complete (Vendor Sales & FIFO Reversals) - v0.4.1
-- **Next Phase**: Phase 5 (Quest Rewards & Travel Expenses)
+- **Current Phase**: Phase 5 complete (Quest Rewards & Travel Expenses) - v0.5.0
+- **Next Phase**: Phase 6 (Rogue Pickpocketing & Lockboxes)
 - **Completed Phases**:
   - Phase 1: Foundation - Looted Gold Only (v0.1.0)
   - Phase 2: Vendor Expenses (v0.2.0)
   - Phase 3: Item Looting & Valuation (v0.3.1)
   - Phase 4: Vendor Sales & FIFO Reversals (v0.4.1)
+  - Phase 5: Quest Rewards & Travel Expenses (v0.5.0)
 - **Architectural fixes completed**:
   - Bug #1 (HUD visibility) fixed in v0.2.1-bugfix1
   - Bug #10 (Character-scoped sessions) fixed in v0.3.2

@@ -45,7 +45,9 @@ end
 -- Addon loaded event handler
 GoldPH_MainFrame:RegisterEvent("ADDON_LOADED")
 GoldPH_MainFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-GoldPH_MainFrame:SetScript("OnEvent", function(self, event, addonName)
+GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
+    local addonName = select(1, ...)  -- First vararg for ADDON_LOADED event
+    
     if event == "ADDON_LOADED" and addonName == "GoldPH" then
         InitializeSavedVariables()
 
@@ -55,7 +57,7 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, addonName)
         -- Initialize event system (registers additional events)
         GoldPH_Events:Initialize(GoldPH_MainFrame)
 
-        print("[GoldPH] Version 0.4.2 (Fish classification fix) loaded. Type /goldph help for commands.")
+        print("[GoldPH] Version 0.5.0 (Phase 5: Quest Rewards & Travel Expenses) loaded. Type /goldph help for commands.")
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Ensure settings exist (for existing SavedVariables)
         if GoldPH_DB.settings.hudVisible == nil then
@@ -76,7 +78,8 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, addonName)
         end
     else
         -- Route other events to GoldPH_Events
-        GoldPH_Events:OnEvent(event, addonName)
+        -- Pass all event arguments (not just addonName) for events like QUEST_TURNED_IN
+        GoldPH_Events:OnEvent(event, ...)
     end
 end)
 
