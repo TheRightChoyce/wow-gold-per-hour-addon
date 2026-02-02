@@ -6,6 +6,34 @@
 
 local GoldPH_Events = {}
 
+--------------------------------------------------
+-- API Compatibility (Classic Anniversary uses C_Container)
+--------------------------------------------------
+
+-- Container API wrapper for GetContainerNumSlots
+local function GetBagNumSlots(bag)
+    if C_Container and C_Container.GetContainerNumSlots then
+        return C_Container.GetContainerNumSlots(bag)
+    else
+        return GetContainerNumSlots(bag)
+    end
+end
+
+-- Container API wrapper for GetContainerItemInfo
+-- Returns: itemCount, itemLink (nil if slot is empty)
+local function GetBagItemInfo(bag, slot)
+    if C_Container and C_Container.GetContainerItemInfo then
+        local info = C_Container.GetContainerItemInfo(bag, slot)
+        if info then
+            return info.stackCount, info.hyperlink
+        end
+        return nil, nil
+    else
+        local _, itemCount, _, _, _, _, itemLink = GetContainerItemInfo(bag, slot)
+        return itemCount, itemLink
+    end
+end
+
 -- Runtime state (not persisted)
 local state = {
     moneyLast = nil,
@@ -403,10 +431,10 @@ function GoldPH_Events:SnapshotBags()
     local snapshot = {}
 
     for bag = 0, 4 do
-        local numSlots = GetContainerNumSlots(bag)
+        local numSlots = GetBagNumSlots(bag)
         for slot = 1, numSlots do
-            local _, itemCount, _, _, _, _, itemLink = GetContainerItemInfo(bag, slot)
-            if itemLink then
+            local itemCount, itemLink = GetBagItemInfo(bag, slot)
+            if itemLink and itemCount then
                 local itemID = self:ExtractItemID(itemLink)
                 if itemID then
                     snapshot[itemID] = (snapshot[itemID] or 0) + itemCount
@@ -494,8 +522,8 @@ function GoldPH_Events:OnUseContainerItem(bag, slot)
         return
     end
 
-    local _, itemCount, _, _, _, _, itemLink = GetContainerItemInfo(bag, slot)
-    if not itemLink then
+    local itemCount, itemLink = GetBagItemInfo(bag, slot)
+    if not itemLink or not itemCount then
         return
     end
 

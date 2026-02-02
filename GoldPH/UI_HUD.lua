@@ -1,7 +1,7 @@
 --[[
     UI_HUD.lua - Heads-up display for GoldPH
 
-    Shows real-time session metrics.
+    Shows real-time session metrics in accounting-style layout.
 ]]
 
 local GoldPH_HUD = {}
@@ -10,12 +10,33 @@ local hudFrame = nil
 local updateTimer = 0
 local UPDATE_INTERVAL = 1.0 -- Update every 1 second
 
+-- Layout constants
+local PADDING = 12
+local FRAME_WIDTH = 180
+local FRAME_HEIGHT = 180
+local LABEL_X = PADDING
+local VALUE_X = FRAME_WIDTH - PADDING  -- Right edge for right-aligned values
+local ROW_HEIGHT = 14
+local SECTION_GAP = 4
+
 -- Initialize HUD
 function GoldPH_HUD:Initialize()
-    -- Create main frame
-    hudFrame = CreateFrame("Frame", "GoldPH_HUD_Frame", UIParent)
-    hudFrame:SetSize(240, 175)  -- Increased size for Phase 3 inventory tracking
+    -- Create main frame with BackdropTemplate for border support
+    hudFrame = CreateFrame("Frame", "GoldPH_HUD_Frame", UIParent, "BackdropTemplate")
+    hudFrame:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
     hudFrame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -50, -200)
+
+    -- Apply WoW-themed backdrop (matches standard UI elements)
+    hudFrame:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true,
+        tileSize = 16,
+        edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 },
+    })
+    hudFrame:SetBackdropColor(0, 0, 0, 0.8)
+    hudFrame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
 
     -- Make it movable
     hudFrame:SetMovable(true)
@@ -28,86 +49,115 @@ function GoldPH_HUD:Initialize()
         self:StopMovingOrSizing()
     end)
 
-    -- Background
-    local bg = hudFrame:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(true)
-    bg:SetColorTexture(0, 0, 0, 0.7)
+    local yPos = -PADDING
 
     -- Title
     local title = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", 0, -5)
+    title:SetPoint("TOP", 0, yPos)
     title:SetText("GoldPH")
     hudFrame.title = title
+    yPos = yPos - 18
 
-    -- Session status
-    local status = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    status:SetPoint("TOPLEFT", 10, -25)
+    -- Session status (centered)
+    local status = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    status:SetPoint("TOP", 0, yPos)
     status:SetText("No active session")
-    status:SetJustifyH("LEFT")
     hudFrame.status = status
+    yPos = yPos - 16
 
-    -- Time
-    local timeText = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    timeText:SetPoint("TOPLEFT", 10, -40)
-    timeText:SetText("Time: --")
-    timeText:SetJustifyH("LEFT")
-    hudFrame.timeText = timeText
+    -- Separator line
+    local sep1 = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    sep1:SetPoint("TOPLEFT", LABEL_X, yPos)
+    sep1:SetPoint("TOPRIGHT", -LABEL_X, yPos)
+    sep1:SetText("----------------")
+    sep1:SetTextColor(0.5, 0.5, 0.5)
+    yPos = yPos - ROW_HEIGHT
 
-    -- Cash
-    local cashText = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    cashText:SetPoint("TOPLEFT", 10, -55)
-    cashText:SetText("Cash: 0c")
-    cashText:SetJustifyH("LEFT")
-    hudFrame.cashText = cashText
+    -- Helper function to create a label/value row
+    local function CreateRow(labelText, yOffset, isLarge)
+        local font = isLarge and "GameFontNormal" or "GameFontNormalSmall"
+        
+        local label = hudFrame:CreateFontString(nil, "OVERLAY", font)
+        label:SetPoint("TOPLEFT", LABEL_X, yOffset)
+        label:SetJustifyH("LEFT")
+        label:SetText(labelText)
+        
+        local value = hudFrame:CreateFontString(nil, "OVERLAY", font)
+        value:SetPoint("TOPRIGHT", -LABEL_X, yOffset)
+        value:SetJustifyH("RIGHT")
+        value:SetText("0g")
+        
+        return label, value
+    end
 
-    -- Cash per hour
-    local cashPerHourText = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    cashPerHourText:SetPoint("TOPLEFT", 10, -70)
-    cashPerHourText:SetText("Cash/hr: 0c")
-    cashPerHourText:SetJustifyH("LEFT")
-    hudFrame.cashPerHourText = cashPerHourText
+    -- Gold row
+    local goldLabel, goldValue = CreateRow("Gold", yPos, false)
+    hudFrame.goldLabel = goldLabel
+    hudFrame.goldValue = goldValue
+    yPos = yPos - ROW_HEIGHT
 
-    -- Phase 2: Income
-    local incomeText = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    incomeText:SetPoint("TOPLEFT", 10, -85)
-    incomeText:SetText("Income: 0c")
-    incomeText:SetJustifyH("LEFT")
-    hudFrame.incomeText = incomeText
+    -- Gold per hour (indented)
+    local goldHrLabel = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    goldHrLabel:SetPoint("TOPLEFT", LABEL_X + 10, yPos)
+    goldHrLabel:SetJustifyH("LEFT")
+    goldHrLabel:SetText("/hr")
+    goldHrLabel:SetTextColor(0.7, 0.7, 0.7)
+    hudFrame.goldHrLabel = goldHrLabel
 
-    -- Phase 2: Expenses
-    local expensesText = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    expensesText:SetPoint("TOPLEFT", 10, -100)
-    expensesText:SetText("Expenses: 0c")
-    expensesText:SetJustifyH("LEFT")
-    hudFrame.expensesText = expensesText
+    local goldHrValue = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    goldHrValue:SetPoint("TOPRIGHT", -LABEL_X, yPos)
+    goldHrValue:SetJustifyH("RIGHT")
+    goldHrValue:SetText("0g")
+    goldHrValue:SetTextColor(0.7, 0.7, 0.7)
+    hudFrame.goldHrValue = goldHrValue
+    yPos = yPos - ROW_HEIGHT + 2
 
-    -- Phase 2: Net
-    local netText = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    netText:SetPoint("TOPLEFT", 10, -115)
-    netText:SetText("Net: 0c")
-    netText:SetJustifyH("LEFT")
-    hudFrame.netText = netText
+    -- Inventory row
+    local invLabel, invValue = CreateRow("Inventory", yPos, false)
+    hudFrame.invLabel = invLabel
+    hudFrame.invValue = invValue
+    yPos = yPos - ROW_HEIGHT
 
-    -- Phase 3: Separator line
-    local separator = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    separator:SetPoint("TOPLEFT", 10, -130)
-    separator:SetText("---")
-    separator:SetJustifyH("LEFT")
-    hudFrame.separator = separator
+    -- Gathering row
+    local gathLabel, gathValue = CreateRow("Gathering", yPos, false)
+    hudFrame.gathLabel = gathLabel
+    hudFrame.gathValue = gathValue
+    yPos = yPos - ROW_HEIGHT
 
-    -- Phase 3: Expected inventory value
-    local expectedText = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    expectedText:SetPoint("TOPLEFT", 10, -140)
-    expectedText:SetText("Expected: 0c")
-    expectedText:SetJustifyH("LEFT")
-    hudFrame.expectedText = expectedText
+    -- Expenses row
+    local expLabel, expValue = CreateRow("Expenses", yPos, false)
+    hudFrame.expLabel = expLabel
+    hudFrame.expValue = expValue
+    yPos = yPos - ROW_HEIGHT
 
-    -- Phase 3: Total economic value per hour
-    local totalPerHourText = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    totalPerHourText:SetPoint("TOPLEFT", 10, -155)
-    totalPerHourText:SetText("Total/hr: 0c")
-    totalPerHourText:SetJustifyH("LEFT")
-    hudFrame.totalPerHourText = totalPerHourText
+    -- Separator line before total
+    local sep2 = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    sep2:SetPoint("TOPLEFT", LABEL_X, yPos)
+    sep2:SetPoint("TOPRIGHT", -LABEL_X, yPos)
+    sep2:SetText("----------------")
+    sep2:SetTextColor(0.5, 0.5, 0.5)
+    yPos = yPos - ROW_HEIGHT
+
+    -- Total row (larger font)
+    local totalLabel, totalValue = CreateRow("Total", yPos, true)
+    hudFrame.totalLabel = totalLabel
+    hudFrame.totalValue = totalValue
+    yPos = yPos - ROW_HEIGHT - 2
+
+    -- Total per hour (indented)
+    local totalHrLabel = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    totalHrLabel:SetPoint("TOPLEFT", LABEL_X + 10, yPos)
+    totalHrLabel:SetJustifyH("LEFT")
+    totalHrLabel:SetText("/hr")
+    totalHrLabel:SetTextColor(0.7, 0.7, 0.7)
+    hudFrame.totalHrLabel = totalHrLabel
+
+    local totalHrValue = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    totalHrValue:SetPoint("TOPRIGHT", -LABEL_X, yPos)
+    totalHrValue:SetJustifyH("RIGHT")
+    totalHrValue:SetText("0g")
+    totalHrValue:SetTextColor(0.7, 0.7, 0.7)
+    hudFrame.totalHrValue = totalHrValue
 
     -- Update loop
     hudFrame:SetScript("OnUpdate", function(self, elapsed)
@@ -120,6 +170,38 @@ function GoldPH_HUD:Initialize()
 
     -- Initial state: hide until session starts
     hudFrame:Hide()
+end
+
+-- Format money for accounting display (uses parentheses for negatives)
+local function FormatAccounting(copper)
+    if not copper then
+        return "0g"
+    end
+    
+    local isNegative = copper < 0
+    local formatted = GoldPH_Ledger:FormatMoney(math.abs(copper))
+    
+    if isNegative then
+        return "(" .. formatted .. ")"
+    else
+        return formatted
+    end
+end
+
+-- Format money short for accounting display (uses parentheses for negatives)
+local function FormatAccountingShort(copper)
+    if not copper then
+        return "0g"
+    end
+    
+    local isNegative = copper < 0
+    local formatted = GoldPH_Ledger:FormatMoneyShort(math.abs(copper))
+    
+    if isNegative then
+        return "(" .. formatted .. ")"
+    else
+        return formatted
+    end
 end
 
 -- Update HUD display
@@ -143,21 +225,34 @@ function GoldPH_HUD:Update()
     -- Get metrics
     local metrics = GoldPH_SessionManager:GetMetrics(session)
 
-    -- Update display
-    hudFrame.status:SetText(string.format("Session #%d", session.id))
-    hudFrame.timeText:SetText(string.format("Time: %s", GoldPH_SessionManager:FormatDuration(metrics.durationSec)))
-    hudFrame.cashText:SetText(string.format("Cash: %s", GoldPH_Ledger:FormatMoney(metrics.cash)))
-    hudFrame.cashPerHourText:SetText(string.format("Cash/hr: %s", GoldPH_Ledger:FormatMoney(metrics.cashPerHour)))
+    -- Session status with duration
+    hudFrame.status:SetText(string.format("#%d | %s",
+        session.id,
+        GoldPH_SessionManager:FormatDuration(metrics.durationSec)))
 
-    -- Phase 2: Income/Expense breakdown
-    hudFrame.incomeText:SetText(string.format("Income: %s", GoldPH_Ledger:FormatMoney(metrics.income)))
-    hudFrame.expensesText:SetText(string.format("Expenses: %s", GoldPH_Ledger:FormatMoney(metrics.expenses)))
-    local netCash = metrics.income - metrics.expenses
-    hudFrame.netText:SetText(string.format("Net: %s", GoldPH_Ledger:FormatMoney(netCash)))
+    -- Gold (cash balance)
+    hudFrame.goldValue:SetText(FormatAccounting(metrics.cash))
+    hudFrame.goldHrValue:SetText(FormatAccountingShort(metrics.cashPerHour))
 
-    -- Phase 3: Expected inventory and total economic value
-    hudFrame.expectedText:SetText(string.format("Expected: %s", GoldPH_Ledger:FormatMoney(metrics.expectedInventory)))
-    hudFrame.totalPerHourText:SetText(string.format("Total/hr: %s", GoldPH_Ledger:FormatMoney(metrics.totalPerHour)))
+    -- Inventory (vendor trash + rare items, excluding gathering)
+    local nonGatheringInventory = metrics.invVendorTrash + metrics.invRareMulti
+    hudFrame.invValue:SetText(FormatAccounting(nonGatheringInventory))
+
+    -- Gathering (ore, herbs, leather, cloth)
+    hudFrame.gathValue:SetText(FormatAccounting(metrics.invGathering))
+
+    -- Expenses (shown with parentheses since it's a deduction)
+    if metrics.expenses > 0 then
+        hudFrame.expValue:SetText("(" .. GoldPH_Ledger:FormatMoney(metrics.expenses) .. ")")
+        hudFrame.expValue:SetTextColor(1, 0.5, 0.5)  -- Light red for expenses
+    else
+        hudFrame.expValue:SetText("0g")
+        hudFrame.expValue:SetTextColor(1, 1, 1)
+    end
+
+    -- Total value (cash + all inventory)
+    hudFrame.totalValue:SetText(FormatAccounting(metrics.totalValue))
+    hudFrame.totalHrValue:SetText(FormatAccountingShort(metrics.totalPerHour))
 end
 
 -- Show HUD

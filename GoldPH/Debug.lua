@@ -457,8 +457,8 @@ function GoldPH_Debug:DumpSession()
 
     local metrics = GoldPH_SessionManager:GetMetrics(session)
     print("\nMetrics:")
-    print(string.format("  Cash: %s", GoldPH_Ledger:FormatMoney(metrics.cash)))
-    print(string.format("  Cash/Hour: %s", GoldPH_Ledger:FormatMoney(metrics.cashPerHour)))
+    print(string.format("  Gold: %s", GoldPH_Ledger:FormatMoney(metrics.cash)))
+    print(string.format("  Gold/Hour: %s", GoldPH_Ledger:FormatMoneyShort(metrics.cashPerHour)))
 
     print(COLOR_YELLOW .. "===========================" .. COLOR_RESET)
 end
@@ -599,6 +599,88 @@ function GoldPH_Debug:ShowPriceSources()
     print("  Set manual override: /script GoldPH_DB.priceOverrides[itemID] = price")
 
     print(COLOR_YELLOW .. "=====================" .. COLOR_RESET)
+end
+
+--------------------------------------------------
+-- HUD Testing
+--------------------------------------------------
+
+-- Test HUD display by injecting sample data for all fields
+-- Usage: /script GoldPH_Debug:TestHUD()
+function GoldPH_Debug:TestHUD()
+    print(COLOR_YELLOW .. "=== HUD Test Data ===" .. COLOR_RESET)
+
+    -- Ensure session is active
+    if not GoldPH_SessionManager:GetActiveSession() then
+        local ok, msg = GoldPH_SessionManager:StartSession()
+        if not ok then
+            print(COLOR_RED .. "Failed to start session: " .. msg .. COLOR_RESET)
+            return false
+        end
+        print(COLOR_GREEN .. "Started new session for testing" .. COLOR_RESET)
+    end
+
+    local session = GoldPH_SessionManager:GetActiveSession()
+
+    -- Sample values (in copper)
+    local goldAmount = 1000000     -- 100g looted coin
+    local inventoryAmount = 300000 -- 30g vendor trash + rare items
+    local gatheringAmount = 200000 -- 20g gathering mats
+    local expenseAmount = 50000    -- 5g repairs
+
+    -- Inject looted gold
+    GoldPH_Events:InjectLootedCoin(goldAmount)
+    print(string.format("  Injected gold: %s", GoldPH_Ledger:FormatMoney(goldAmount)))
+
+    -- Inject inventory items (vendor trash bucket) - direct ledger posting
+    GoldPH_Ledger:Post(session, "Assets:Inventory:VendorTrash", "Income:ItemsLooted:VendorTrash", inventoryAmount)
+    print(string.format("  Injected inventory (vendor trash): %s", GoldPH_Ledger:FormatMoney(inventoryAmount)))
+
+    -- Inject gathering items - direct ledger posting
+    GoldPH_Ledger:Post(session, "Assets:Inventory:Gathering", "Income:ItemsLooted:Gathering", gatheringAmount)
+    print(string.format("  Injected gathering: %s", GoldPH_Ledger:FormatMoney(gatheringAmount)))
+
+    -- Inject repair expense
+    GoldPH_Events:InjectRepair(expenseAmount)
+    print(string.format("  Injected expenses: %s", GoldPH_Ledger:FormatMoney(expenseAmount)))
+
+    -- Calculate expected HUD values
+    local expectedGold = goldAmount - expenseAmount  -- 95g (gold minus expenses)
+    local expectedInventory = inventoryAmount        -- 30g
+    local expectedGathering = gatheringAmount        -- 20g
+    local expectedTotal = expectedGold + expectedInventory + expectedGathering  -- 145g
+
+    print("")
+    print(COLOR_GREEN .. "Expected HUD values:" .. COLOR_RESET)
+    print(string.format("  Gold: %s", GoldPH_Ledger:FormatMoney(expectedGold)))
+    print(string.format("  Inventory: %s", GoldPH_Ledger:FormatMoney(expectedInventory)))
+    print(string.format("  Gathering: %s", GoldPH_Ledger:FormatMoney(expectedGathering)))
+    print(string.format("  Expenses: -%s", GoldPH_Ledger:FormatMoney(expenseAmount)))
+    print(string.format("  Total: %s", GoldPH_Ledger:FormatMoney(expectedTotal)))
+
+    -- Force HUD update
+    GoldPH_HUD:Update()
+
+    print("")
+    print(COLOR_YELLOW .. "HUD should now display test data. Verify visually." .. COLOR_RESET)
+    print(COLOR_YELLOW .. "=====================" .. COLOR_RESET)
+
+    return true
+end
+
+-- Reset test data (stop and start fresh session)
+-- Usage: /script GoldPH_Debug:ResetTestHUD()
+function GoldPH_Debug:ResetTestHUD()
+    -- Stop current session if active
+    if GoldPH_SessionManager:GetActiveSession() then
+        GoldPH_SessionManager:StopSession()
+        print(COLOR_YELLOW .. "[GoldPH] Test session stopped" .. COLOR_RESET)
+    end
+
+    -- Start fresh session
+    GoldPH_SessionManager:StartSession()
+    GoldPH_HUD:Update()
+    print(COLOR_GREEN .. "[GoldPH] Fresh session started for testing" .. COLOR_RESET)
 end
 
 -- Export module
