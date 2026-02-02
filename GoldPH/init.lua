@@ -96,6 +96,8 @@ local function ShowHelp()
     print("")
     print("|cff00ff00=== Test Commands ===|r")
     print("|cffffff00/goldph test run|r - Run automated test suite")
+    print("|cffffff00/goldph test hud|r - Populate HUD with sample data for testing")
+    print("|cffffff00/goldph test reset|r - Reset to fresh session")
     print("|cffffff00/goldph test loot <copper>|r - Inject looted coin event")
     print("|cffffff00/goldph test repair <copper>|r - Inject repair cost (Phase 2+)")
     print("|cffffff00/goldph test lootitem <itemID> <count>|r - Inject looted item (Phase 3+)")
@@ -136,7 +138,7 @@ local function HandleCommand(msg)
                                 session.id,
                                 GoldPH_SessionManager:FormatDuration(metrics.durationSec),
                                 GoldPH_Ledger:FormatMoney(metrics.cash),
-                                GoldPH_Ledger:FormatMoney(metrics.cashPerHour)))
+                                GoldPH_Ledger:FormatMoneyShort(metrics.cashPerHour)))
         else
             print("[GoldPH] No active session")
         end
@@ -183,6 +185,10 @@ local function HandleCommand(msg)
 
         if subCmd == "run" then
             GoldPH_Debug:RunTests()
+        elseif subCmd == "hud" then
+            GoldPH_Debug:TestHUD()
+        elseif subCmd == "reset" then
+            GoldPH_Debug:ResetTestHUD()
         elseif subCmd == "loot" then
             local copper = tonumber(args[3])
             if not copper then
@@ -226,7 +232,7 @@ local function HandleCommand(msg)
                 end
             end
         else
-            print("[GoldPH] Test commands: run, loot <copper>, repair <copper>, lootitem <itemID> <count>, vendoritem <itemID> <count>")
+            print("[GoldPH] Test commands: run, hud, reset, loot <copper>, repair <copper>, lootitem <itemID> <count>, vendoritem <itemID> <count>")
         end
 
     -- Help
