@@ -179,6 +179,41 @@ GoldPH/
 - Enable verbose mode: `/goldph debug verbose on`
 - Check session state: `/goldph debug dump`
 
+## Development
+
+### Linting
+
+This project uses [luacheck](https://github.com/lunarmodules/luacheck) for code quality. A pre-commit hook automatically runs luacheck before each commit.
+
+**Install luacheck:**
+```bash
+# Using pip
+pip install luacheck
+
+# Using homebrew (macOS)
+brew install luacheck
+```
+
+**Run linting manually:**
+```bash
+luacheck GoldPH/
+```
+
+The `.luacheckrc` configuration file is configured for WoW Classic Anniversary's Lua 5.1 environment and includes common WoW API globals.
+
+**Pre-commit hook:**
+- Automatically runs on `git commit`
+- Only checks staged `.lua` files
+- Blocks commit if linting fails
+- Can be bypassed with `git commit --no-verify` (not recommended)
+
+**Setup hooks:**
+```bash
+./setup-hooks.sh
+```
+
+This installs the pre-commit hook that runs luacheck automatically.
+
 ## Contributing
 
 This addon is developed incrementally following a multi-phase plan. Each phase builds on the previous:
