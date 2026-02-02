@@ -1,8 +1,8 @@
 ## Interface: 11504
 ## Title: GoldPH
-## Notes: Session-based gold-per-hour tracking with double-ledger accounting (WoW Classic Anniversary)
+## Notes: Session-based gold-per-hour tracking with double-ledger accounting. Features minimize/maximize HUD, real-time metrics, and conservative item valuation (WoW Classic Anniversary)
 ## Author: Claude Code
-## Version: 0.4.2
+## Version: 0.4.3
 ## SavedVariablesPerCharacter: GoldPH_DB
 
 # Core modules (load order matters)

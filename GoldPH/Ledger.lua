@@ -161,7 +161,7 @@ function GoldPH_Ledger:FormatMoney(copper)
     end
 end
 
--- Format copper amount as shortened string (gold only, or silver if < 1g)
+-- Format copper amount as shortened string (gold + silver, copper ignored)
 -- Used for per-hour rates where precision isn't needed
 function GoldPH_Ledger:FormatMoneyShort(copper)
     if not copper or copper == 0 then
@@ -174,18 +174,19 @@ function GoldPH_Ledger:FormatMoneyShort(copper)
 
     local gold = math.floor(absCopper / 10000)
     local silver = math.floor((absCopper % 10000) / 100)
+    -- Copper is ignored
 
     local result = ""
 
     if gold > 0 then
-        -- Show gold only (ignore silver/copper for rates)
-        result = string.format("%dg", gold)
+        -- Show gold + silver (always show silver with 2 digits for consistency, ignore copper)
+        result = string.format("%dg %02ds", gold, silver)
     elseif silver > 0 then
         -- Show silver if less than 1 gold
         result = string.format("%ds", silver)
     else
-        -- Show copper if very small amount
-        result = string.format("%dc", absCopper % 100)
+        -- Very small amount, show as 0g
+        result = "0g"
     end
 
     -- Add negative sign if needed

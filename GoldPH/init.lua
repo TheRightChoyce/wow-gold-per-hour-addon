@@ -21,7 +21,8 @@ local function InitializeSavedVariables()
 
             settings = {
                 trackZone = true,
-                hudVisible = true,  -- Track HUD visibility state
+                hudVisible = true,   -- Track HUD visibility state
+                hudMinimized = false, -- Track HUD minimize state
             },
 
             priceOverrides = {},
@@ -56,15 +57,19 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, addonName)
 
         print("[GoldPH] Version 0.4.2 (Fish classification fix) loaded. Type /goldph help for commands.")
     elseif event == "PLAYER_ENTERING_WORLD" then
-        -- Ensure hudVisible setting exists (for existing SavedVariables)
+        -- Ensure settings exist (for existing SavedVariables)
         if GoldPH_DB.settings.hudVisible == nil then
             GoldPH_DB.settings.hudVisible = true
         end
+        if GoldPH_DB.settings.hudMinimized == nil then
+            GoldPH_DB.settings.hudMinimized = false
+        end
 
-        -- Auto-restore HUD visibility if session is active
+        -- Auto-restore HUD visibility and state if session is active
         if GoldPH_DB.activeSession then
             if GoldPH_DB.settings.hudVisible then
                 GoldPH_HUD:Show()
+                GoldPH_HUD:ApplyMinimizeState()
             else
                 GoldPH_HUD:Update()
             end
