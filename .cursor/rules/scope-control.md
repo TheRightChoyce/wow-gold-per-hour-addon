@@ -8,6 +8,13 @@
 - If asked to "plan", plan - do not implement
 - If asked to "implement", implement - do not add extra features
 
+## Todo List Discipline
+
+- When asked to "continue to next todo" or "build next todo", complete ONLY ONE todo
+- Only combine multiple todos if they are tightly coupled (one cannot work without the other)
+- After completing a todo, STOP and report completion - do not automatically continue
+- Let the user decide when to proceed to the next todo
+
 ## Ask Before Expanding Scope
 
 - If a task could benefit from additional work, ASK first before doing it
