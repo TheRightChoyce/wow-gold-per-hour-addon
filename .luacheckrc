@@ -1,12 +1,63 @@
 -- Luacheck configuration for GoldPH WoW Addon
 -- WoW Classic Anniversary uses Lua 5.1
+-- Based on Questie's configuration (https://github.com/Questie/Questie/blob/master/.luacheckrc)
+-- with GoldPH-specific additions
 
--- Standard globals provided by WoW API
-std = "min"
+std = "lua51"
+max_line_length = 140
 
--- WoW API globals (common ones - not exhaustive)
-read_globals = {
-    -- WoW API
+-- Files to check
+files = {
+    "GoldPH/*.lua",
+}
+
+-- Exclude patterns
+exclude_files = {
+    -- Exclude any test files or generated files if we add them later
+}
+
+-- Ignore patterns (from Questie)
+ignore = {
+    "211", -- Unused local variable
+    "212", -- Unused argument (e.g. "self")
+    "213", -- Unused loop variable
+    "431", -- Shadowing an upvalue
+    "432", -- Shadowing an upvalue argument (e.g. "self")
+    "611", -- A line consists of nothing but whitespace
+    "612", -- A line contains trailing whitespace
+    "614", -- Trailing whitespace in a comment
+    "631", -- Line is too long
+}
+
+-- WoW API globals (from Questie's extensive list + GoldPH-specific additions)
+globals = {
+    -- GoldPH-specific globals (must be included)
+    "_G",
+    "GoldPH_DB",
+    "GoldPH_Ledger",
+    "GoldPH_SessionManager",
+    "GoldPH_Events",
+    "GoldPH_HUD",
+    "GoldPH_Debug",
+    "GoldPH_Valuation",
+    "GoldPH_Holdings",
+    "GoldPH_PriceSources",
+    
+    -- GoldPH-specific WoW API usage
+    "TSM_API",  -- Optional addon, checked at runtime
+    "TakeTaxiNode",  -- Taxi API (may not exist in all versions)
+    "TaxiNodeCost",  -- Taxi API (may not exist in all versions)
+    "SLASH_GOLDPH1",  -- Slash command registration
+    "SLASH_GOLDPH2",  -- Slash command registration
+    "SlashCmdList",  -- Slash command system
+    
+    -- WoW Events (used as strings, but luacheck may check them)
+    "PLAYER_MONEY",
+    "TAXIMAP_OPENED",
+    "TAXIMAP_CLOSED",
+    "QUEST_TURNED_IN",
+    
+    -- Core WoW API (from Questie - most commonly used)
     "GetMoney",
     "GetTime",
     "time",
@@ -36,73 +87,18 @@ read_globals = {
     "type",
     "next",
     "unpack",
-    
-    -- WoW Classic Anniversary API
-    "C_Container",
-    "C_Timer",
-    "C_TaxiMap",
-    
-    -- WoW Events
     "RegisterEvent",
     "SetScript",
     "OnEvent",
     "OnUpdate",
-    
-    -- WoW UI
     "GameFontNormal",
     "GameFontNormalSmall",
     "GameFontNormalLarge",
     "BackdropTemplate",
-    
-    -- WoW Taxi API (may not exist in all versions, checked at runtime)
-    "TakeTaxiNode",
-    "TaxiNodeCost",
-    
-    -- TSM API (optional addon, checked at runtime)
-    "TSM_API",
-    
-    -- WoW Slash Command API
-    "SLASH_GOLDPH1",
-    "SLASH_GOLDPH2",
-    "SlashCmdList",
-    
-    -- Global module exports (our addon)
-    "_G",
-    "GoldPH_DB",
-    "GoldPH_Ledger",
-    "GoldPH_SessionManager",
-    "GoldPH_Events",
-    "GoldPH_HUD",
-    "GoldPH_Debug",
-    "GoldPH_Valuation",
-    "GoldPH_Holdings",
-    "GoldPH_PriceSources",
+    "C_Container",
+    "C_Timer",
+    "C_TaxiMap",
+    "C_Container.GetContainerNumSlots",
+    "C_Container.GetContainerItemInfo",
+    "C_Timer.After",
 }
-
--- Ignore warnings for unused variables that are part of WoW API patterns
-unused_args = false
-
--- Allow unused variables that start with underscore
-ignore = {
-    "212", -- unused argument
-    "111", -- setting read-only field (normal for WoW addons exporting to _G)
-    "112", -- mutating read-only field (normal for WoW SavedVariables)
-    "113", -- accessing undefined variable (WoW API functions checked at runtime)
-    "421", -- shadowing upvalue (common in WoW addon callbacks)
-    "431", -- setting non-standard global (WoW slash command system)
-    "432", -- mutating non-standard global (WoW slash command system)
-    "611", -- line contains only whitespace (acceptable for code organization)
-}
-
--- Files to check
-files = {
-    "GoldPH/*.lua",
-}
-
--- Exclude patterns
-exclude_files = {
-    -- Exclude any test files or generated files if we add them later
-}
-
--- Allow longer lines (WoW addon code can be verbose)
-max_line_length = 130

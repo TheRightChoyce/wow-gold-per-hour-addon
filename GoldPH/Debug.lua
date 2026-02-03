@@ -446,7 +446,7 @@ function GoldPH_Debug:DumpSession()
 
     print(COLOR_YELLOW .. "=== GoldPH Session Dump ===" .. COLOR_RESET)
     print(string.format("Session ID: %d", session.id))
-    print(string.format("Started: %s", date("%Y-%m-%d %H:%M:%S", session.startedAt)))
+    print(string.format("Started: %s", os.date("%Y-%m-%d %H:%M:%S", session.startedAt)))
     print(string.format("Duration: %s", GoldPH_SessionManager:FormatDuration(time() - session.startedAt)))
     print(string.format("Zone: %s", session.zone))
 

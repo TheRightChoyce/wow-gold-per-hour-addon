@@ -139,8 +139,7 @@ function GoldPH_Ledger:FormatMoney(copper)
     local silver = math.floor((absCopper % 10000) / 100)
     local copperRem = absCopper % 100
 
-    local result = ""
-
+    local result
     if gold > 0 then
         if silver > 0 or copperRem > 0 then
             result = string.format("%dg %ds %dc", gold, silver, copperRem)
@@ -180,8 +179,7 @@ function GoldPH_Ledger:FormatMoneyShort(copper)
     local silver = math.floor((absCopper % 10000) / 100)
     -- Copper is ignored
 
-    local result = ""
-
+    local result
     if gold > 0 then
         -- Show gold + silver (always show silver with 2 digits for consistency, ignore copper)
         result = string.format("%dg %02ds", gold, silver)
