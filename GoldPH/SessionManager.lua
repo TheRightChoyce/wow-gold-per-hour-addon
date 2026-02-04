@@ -29,9 +29,20 @@ function GoldPH_SessionManager:StartSession()
         items = {},      -- [itemID] = ItemAgg (count, expected value, etc.)
         holdings = {},   -- [itemID] = { count, lots = { Lot, ... } }
 
-        -- Additional fields added in later phases:
-        -- gathering = {},
-        -- pickpocket = {},
+        -- Phase 6: Pickpocket tracking
+        pickpocket = {
+            gold = 0,
+            value = 0,
+            lockboxesLooted = 0,
+            lockboxesOpened = 0,
+            fromLockbox = { gold = 0, value = 0 },
+        },
+
+        -- Phase 6: Gathering nodes (for future metrics)
+        gathering = {
+            totalNodes = 0,
+            nodesByType = {},
+        },
     }
 
     -- Initialize ledger
@@ -122,6 +133,31 @@ function GoldPH_SessionManager:GetMetrics(session)
         totalPerHour = math.floor(totalValue / durationHours)
     end
 
+    -- Phase 6: Pickpocket metrics
+    local pickpocketGold = 0
+    local pickpocketValue = 0
+    local lockboxesLooted = 0
+    local lockboxesOpened = 0
+    local fromLockboxGold = 0
+    local fromLockboxValue = 0
+
+    if session.pickpocket then
+        pickpocketGold = session.pickpocket.gold or 0
+        pickpocketValue = session.pickpocket.value or 0
+        lockboxesLooted = session.pickpocket.lockboxesLooted or 0
+        lockboxesOpened = session.pickpocket.lockboxesOpened or 0
+        if session.pickpocket.fromLockbox then
+            fromLockboxGold = session.pickpocket.fromLockbox.gold or 0
+            fromLockboxValue = session.pickpocket.fromLockbox.value or 0
+        end
+    end
+
+    -- Also get ledger balances for reporting (source of truth)
+    local incomePickpocketCoin = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:Coin")
+    local incomePickpocketItems = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:Items")
+    local incomePickpocketFromLockboxCoin = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:FromLockbox:Coin")
+    local incomePickpocketFromLockboxItems = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:FromLockbox:Items")
+
     return {
         durationSec = durationSec,
         durationHours = durationHours,
@@ -146,6 +182,19 @@ function GoldPH_SessionManager:GetMetrics(session)
         -- Phase 3: Total economic value
         totalValue = totalValue,
         totalPerHour = totalPerHour,
+
+        -- Phase 6: Pickpocket metrics
+        pickpocketGold = pickpocketGold,
+        pickpocketValue = pickpocketValue,
+        lockboxesLooted = lockboxesLooted,
+        lockboxesOpened = lockboxesOpened,
+        fromLockboxGold = fromLockboxGold,
+        fromLockboxValue = fromLockboxValue,
+        -- Ledger balances (for reporting/debug)
+        incomePickpocketCoin = incomePickpocketCoin,
+        incomePickpocketItems = incomePickpocketItems,
+        incomePickpocketFromLockboxCoin = incomePickpocketFromLockboxCoin,
+        incomePickpocketFromLockboxItems = incomePickpocketFromLockboxItems,
     }
 end
 

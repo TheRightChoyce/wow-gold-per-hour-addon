@@ -56,8 +56,10 @@ globals = {
     "TAXIMAP_OPENED",
     "TAXIMAP_CLOSED",
     "QUEST_TURNED_IN",
+    "UNIT_SPELLCAST_SUCCEEDED",
     
     -- Core WoW API (from Questie - most commonly used)
+    "GetSpellInfo",
     "GetMoney",
     "GetTime",
     "time",

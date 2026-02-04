@@ -187,6 +187,10 @@ function GoldPH_Debug:RunTests()
     local test7 = self:Test_VendorSale_PreSession()
     table.insert(testResults, test7)
 
+    -- Phase 6 tests
+    local test8 = self:Test_PickpocketStats()
+    table.insert(testResults, test8)
+
     -- Summary
     local passed = 0
     local failed = 0
@@ -425,6 +429,87 @@ function GoldPH_Debug:Test_VendorSale_PreSession()
     return {name = testName, passed = passed, message = message}
 end
 
+-- Test: Pickpocket statistics display (Phase 6)
+function GoldPH_Debug:Test_PickpocketStats()
+    local testName = "Pickpocket Stats Display"
+
+    -- Start temporary session if needed
+    if not GoldPH_SessionManager:GetActiveSession() then
+        GoldPH_SessionManager:StartSession()
+    end
+
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        return {name = testName, passed = false, message = "Failed to start session"}
+    end
+
+    -- Ensure pickpocket structure exists
+    if not session.pickpocket then
+        session.pickpocket = {
+            gold = 0,
+            value = 0,
+            lockboxesLooted = 0,
+            lockboxesOpened = 0,
+            fromLockbox = { gold = 0, value = 0 },
+        }
+    end
+
+    -- Set up test data
+    session.pickpocket.gold = 5000  -- 50 silver
+    session.pickpocket.value = 12000  -- 1g 20s
+    session.pickpocket.lockboxesLooted = 5
+    session.pickpocket.lockboxesOpened = 3
+    session.pickpocket.fromLockbox.gold = 2000  -- 20 silver
+    session.pickpocket.fromLockbox.value = 8000  -- 80 silver
+
+    -- Ensure ledger balances exist
+    if not session.ledger.balances["Income:Pickpocket:Coin"] then
+        session.ledger.balances["Income:Pickpocket:Coin"] = 0
+    end
+    if not session.ledger.balances["Income:Pickpocket:Items"] then
+        session.ledger.balances["Income:Pickpocket:Items"] = 0
+    end
+    if not session.ledger.balances["Income:Pickpocket:FromLockbox:Coin"] then
+        session.ledger.balances["Income:Pickpocket:FromLockbox:Coin"] = 0
+    end
+    if not session.ledger.balances["Income:Pickpocket:FromLockbox:Items"] then
+        session.ledger.balances["Income:Pickpocket:FromLockbox:Items"] = 0
+    end
+
+    session.ledger.balances["Income:Pickpocket:Coin"] = 5000
+    session.ledger.balances["Income:Pickpocket:Items"] = 12000
+    session.ledger.balances["Income:Pickpocket:FromLockbox:Coin"] = 2000
+    session.ledger.balances["Income:Pickpocket:FromLockbox:Items"] = 8000
+
+    -- Call ShowPickpocket and verify it doesn't error
+    local success, err = pcall(function()
+        self:ShowPickpocket()
+    end)
+
+    if not success then
+        return {name = testName, passed = false, message = "ShowPickpocket() failed: " .. tostring(err)}
+    end
+
+    -- Verify metrics match
+    local metrics = GoldPH_SessionManager:GetMetrics(session)
+    local passed = (metrics.pickpocketGold == 5000) and
+                   (metrics.pickpocketValue == 12000) and
+                   (metrics.lockboxesLooted == 5) and
+                   (metrics.lockboxesOpened == 3) and
+                   (metrics.fromLockboxGold == 2000) and
+                   (metrics.fromLockboxValue == 8000)
+
+    local message = passed and "OK" or
+                    string.format("FAIL: Metrics mismatch - Expected gold=%d value=%d looted=%d opened=%d fromLockboxGold=%d fromLockboxValue=%d, got gold=%d value=%d looted=%d opened=%d fromLockboxGold=%d fromLockboxValue=%d",
+                        5000, 12000, 5, 3, 2000, 8000,
+                        metrics.pickpocketGold, metrics.pickpocketValue, metrics.lockboxesLooted, metrics.lockboxesOpened,
+                        metrics.fromLockboxGold, metrics.fromLockboxValue)
+
+    self:LogTestResult(testName, passed, message)
+
+    return {name = testName, passed = passed, message = message}
+end
+
 -- Log test result
 function GoldPH_Debug:LogTestResult(testName, passed, message)
     local color = passed and COLOR_GREEN or COLOR_RED
@@ -459,6 +544,19 @@ function GoldPH_Debug:DumpSession()
     print("\nMetrics:")
     print(string.format("  Gold: %s", GoldPH_Ledger:FormatMoney(metrics.cash)))
     print(string.format("  Gold/Hour: %s", GoldPH_Ledger:FormatMoneyShort(metrics.cashPerHour)))
+
+    -- Phase 6: Pickpocket summary
+    if session.pickpocket and (metrics.pickpocketGold > 0 or metrics.pickpocketValue > 0 or metrics.lockboxesLooted > 0 or metrics.lockboxesOpened > 0) then
+        print("\nPickpocket:")
+        print(string.format("  Coin: %s", GoldPH_Ledger:FormatMoney(metrics.pickpocketGold)))
+        print(string.format("  Items Value: %s", GoldPH_Ledger:FormatMoney(metrics.pickpocketValue)))
+        print(string.format("  Lockboxes Looted: %d", metrics.lockboxesLooted))
+        print(string.format("  Lockboxes Opened: %d", metrics.lockboxesOpened))
+        if metrics.fromLockboxGold > 0 or metrics.fromLockboxValue > 0 then
+            print(string.format("  From Lockboxes - Coin: %s", GoldPH_Ledger:FormatMoney(metrics.fromLockboxGold)))
+            print(string.format("  From Lockboxes - Items Value: %s", GoldPH_Ledger:FormatMoney(metrics.fromLockboxValue)))
+        end
+    end
 
     print(COLOR_YELLOW .. "===========================" .. COLOR_RESET)
 end
@@ -599,6 +697,66 @@ function GoldPH_Debug:ShowPriceSources()
     print("  Set manual override: /script GoldPH_DB.priceOverrides[itemID] = price")
 
     print(COLOR_YELLOW .. "=====================" .. COLOR_RESET)
+end
+
+-- Show pickpocket statistics (Phase 6)
+function GoldPH_Debug:ShowPickpocket()
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        print(COLOR_YELLOW .. "[GoldPH Debug] No active session" .. COLOR_RESET)
+        return
+    end
+
+    print(COLOR_YELLOW .. "=== Pickpocket Statistics ===" .. COLOR_RESET)
+
+    -- Ensure pickpocket structure exists
+    if not session.pickpocket then
+        print("  " .. COLOR_RED .. "No pickpocket data (session started before Phase 6)" .. COLOR_RESET)
+        print(COLOR_YELLOW .. "===========================" .. COLOR_RESET)
+        return
+    end
+
+    local metrics = GoldPH_SessionManager:GetMetrics(session)
+
+    -- Coin and items
+    print(string.format("  Coin: %s", GoldPH_Ledger:FormatMoney(metrics.pickpocketGold)))
+    print(string.format("  Items Value: %s", GoldPH_Ledger:FormatMoney(metrics.pickpocketValue)))
+    print(string.format("  Total Pickpocket Value: %s", 
+        GoldPH_Ledger:FormatMoney(metrics.pickpocketGold + metrics.pickpocketValue)))
+
+    -- Lockboxes
+    print(string.format("\n  Lockboxes Looted: %d", metrics.lockboxesLooted))
+    print(string.format("  Lockboxes Opened: %d", metrics.lockboxesOpened))
+    if metrics.lockboxesLooted > 0 then
+        local unopened = metrics.lockboxesLooted - metrics.lockboxesOpened
+        if unopened > 0 then
+            print(string.format("  Unopened: %d", unopened))
+        end
+    end
+
+    -- From lockboxes
+    if metrics.fromLockboxGold > 0 or metrics.fromLockboxValue > 0 then
+        print(string.format("\n  From Lockboxes:"))
+        print(string.format("    Coin: %s", GoldPH_Ledger:FormatMoney(metrics.fromLockboxGold)))
+        print(string.format("    Items Value: %s", GoldPH_Ledger:FormatMoney(metrics.fromLockboxValue)))
+        print(string.format("    Total: %s", 
+            GoldPH_Ledger:FormatMoney(metrics.fromLockboxGold + metrics.fromLockboxValue)))
+    end
+
+    -- Ledger balances (for verification)
+    print(string.format("\n  Ledger Balances (reporting only):"))
+    print(string.format("    Income:Pickpocket:Coin: %s", 
+        GoldPH_Ledger:FormatMoney(metrics.incomePickpocketCoin)))
+    print(string.format("    Income:Pickpocket:Items: %s", 
+        GoldPH_Ledger:FormatMoney(metrics.incomePickpocketItems)))
+    if metrics.incomePickpocketFromLockboxCoin > 0 or metrics.incomePickpocketFromLockboxItems > 0 then
+        print(string.format("    Income:Pickpocket:FromLockbox:Coin: %s", 
+            GoldPH_Ledger:FormatMoney(metrics.incomePickpocketFromLockboxCoin)))
+        print(string.format("    Income:Pickpocket:FromLockbox:Items: %s", 
+            GoldPH_Ledger:FormatMoney(metrics.incomePickpocketFromLockboxItems)))
+    end
+
+    print(COLOR_YELLOW .. "===========================" .. COLOR_RESET)
 end
 
 --------------------------------------------------

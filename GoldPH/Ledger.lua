@@ -26,6 +26,15 @@ function GoldPH_Ledger:InitializeLedger(session)
             -- Income (Phase 5)
             ["Income:Quest"] = 0,
 
+            -- Income (Phase 6: Pickpocket - reporting only, no double-post to Assets:Cash)
+            ["Income:Pickpocket:Coin"] = 0,
+            ["Income:Pickpocket:Items"] = 0,
+            ["Income:Pickpocket:FromLockbox:Coin"] = 0,
+            ["Income:Pickpocket:FromLockbox:Items"] = 0,
+
+            -- Assets (Phase 6: Lockboxes have 0 expected value until opened)
+            ["Assets:Inventory:Containers:Lockbox"] = 0,
+
             -- Equity (Phase 4)
             ["Equity:InventoryRealization"] = 0,
 

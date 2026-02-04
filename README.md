@@ -2,7 +2,7 @@
 
 A session-based gold tracking addon for World of Warcraft Classic Anniversary using double-ledger accounting to prevent double counting.
 
-**Current Version**: 0.5.0 (Phase 5: Quest Rewards & Travel Expenses)
+**Current Version**: 0.6.0 (Phase 6: Rogue Pickpocketing & Lockboxes)
 
 ## Features (Phase 1 & 2)
 
@@ -107,7 +107,7 @@ This addon is being developed in 7 incremental phases:
 - **Phase 3** (✅ Complete): Item looting & valuation
 - **Phase 4** (✅ Complete): Vendor sales with FIFO reversals (prevents double counting)
 - **Phase 5** (✅ Complete): Quest rewards & travel expenses
-- **Phase 6** (Planned): Rogue pickpocketing & lockboxes
+- **Phase 6** (✅ Complete): Rogue pickpocketing & lockboxes
 - **Phase 7** (Planned): Gathering nodes & UI polish
 
 Each phase is implemented as a separate PR for review. See the [multi-phase plan](.claude/plans/sprightly-gliding-thunder.md) for details.

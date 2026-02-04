@@ -46,7 +46,12 @@ local state = {
     moneyAtTaxiOpen = nil,
     taxiCostProcessed = false,
 
-    -- Phase 6+: pickpocketActiveUntil, openingLockboxUntil, etc.
+    -- Phase 6: Pickpocket and lockbox attribution windows
+    pickpocketActiveUntil = 0,
+    openingLockboxUntil = 0,
+    openingLockboxItemID = nil,
+    -- Phase 6: BAG_UPDATE fallback for lockbox opening (when UseContainerItem isn't hookable)
+    lockboxBagSnapshot = nil,  -- [ "bag_slot" ] = { itemID, count } for slots with lockboxes
 }
 
 -- Initialize event system
@@ -61,6 +66,7 @@ function GoldPH_Events:Initialize(frame)
     frame:RegisterEvent("TAXIMAP_OPENED") -- Phase 5
     frame:RegisterEvent("TAXIMAP_CLOSED") -- Phase 5
     frame:RegisterEvent("QUEST_TURNED_IN") -- Phase 5
+    frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED") -- Phase 6 (pickpocket detection)
 
     -- Note: We do NOT set OnEvent handler here - init.lua maintains control
     -- and will route events to us via GoldPH_Events:OnEvent()
@@ -76,6 +82,9 @@ function GoldPH_Events:Initialize(frame)
     
     -- Hook taxi node selection (Phase 5)
     self:HookTaxiFunctions()
+
+    -- Hook lockbox opening (Phase 6)
+    self:HookLockboxOpening()
 end
 
 -- Main event dispatcher
@@ -98,6 +107,8 @@ function GoldPH_Events:OnEvent(event, ...)
         self:OnTaxiMapClosed()
     elseif event == "QUEST_TURNED_IN" then
         self:OnQuestTurnedIn(...)
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        self:OnUnitSpellcastSucceeded(...)
     end
 end
 
@@ -118,6 +129,51 @@ function GoldPH_Events:OnLootedCoin(message)
     if copper and copper > 0 then
         -- Post double-entry: Dr Assets:Cash, Cr Income:LootedCoin
         GoldPH_Ledger:Post(session, "Assets:Cash", "Income:LootedCoin", copper)
+
+        -- Phase 6: Pickpocket and lockbox attribution (reporting only, no double-post)
+        -- INVARIANT: Only ONE Post to Assets:Cash per looted coin (above).
+        -- Pickpocket/FromLockbox updates are reporting-only (balances and session.pickpocket counters).
+        -- This prevents double-counting cash while still tracking attribution.
+        local currentTime = GetTime()
+        
+        -- Ensure pickpocket structure exists
+        if not session.pickpocket then
+            session.pickpocket = {
+                gold = 0,
+                value = 0,
+                lockboxesLooted = 0,
+                lockboxesOpened = 0,
+                fromLockbox = { gold = 0, value = 0 },
+            }
+        end
+
+        -- Check if within pickpocket attribution window
+        if currentTime <= state.pickpocketActiveUntil then
+            session.pickpocket.gold = session.pickpocket.gold + copper
+            -- Reporting only: update ledger balance directly (no second Post to Assets:Cash)
+            if not session.ledger.balances["Income:Pickpocket:Coin"] then
+                session.ledger.balances["Income:Pickpocket:Coin"] = 0
+            end
+            session.ledger.balances["Income:Pickpocket:Coin"] = session.ledger.balances["Income:Pickpocket:Coin"] + copper
+
+            if GoldPH_DB.debug.verbose then
+                print(string.format("[GoldPH] Pickpocket coin: %s", GoldPH_Ledger:FormatMoney(copper)))
+            end
+        end
+
+        -- Check if within lockbox opening attribution window
+        if currentTime <= state.openingLockboxUntil then
+            session.pickpocket.fromLockbox.gold = session.pickpocket.fromLockbox.gold + copper
+            -- Reporting only: update ledger balance directly (no second Post to Assets:Cash)
+            if not session.ledger.balances["Income:Pickpocket:FromLockbox:Coin"] then
+                session.ledger.balances["Income:Pickpocket:FromLockbox:Coin"] = 0
+            end
+            session.ledger.balances["Income:Pickpocket:FromLockbox:Coin"] = session.ledger.balances["Income:Pickpocket:FromLockbox:Coin"] + copper
+
+            if GoldPH_DB.debug.verbose then
+                print(string.format("[GoldPH] Lockbox coin: %s", GoldPH_Ledger:FormatMoney(copper)))
+            end
+        end
 
         -- Debug logging
         if GoldPH_DB.debug.verbose then
@@ -207,14 +263,41 @@ function GoldPH_Events:OnLootedItem(message)
         return
     end
 
+    -- Phase 6: Determine attribution context (pickpocket or lockbox)
+    local currentTime = GetTime()
+    local isPickpocket = (currentTime <= state.pickpocketActiveUntil)
+    local isFromLockbox = (currentTime <= state.openingLockboxUntil)
+
+    -- Ensure pickpocket structure exists
+    if not session.pickpocket then
+        session.pickpocket = {
+            gold = 0,
+            value = 0,
+            lockboxesLooted = 0,
+            lockboxesOpened = 0,
+            fromLockbox = { gold = 0, value = 0 },
+        }
+    end
+
     -- Compute expected value
     local expectedEach = GoldPH_Valuation:ComputeExpectedValue(itemID, bucket)
+    local expectedTotal = count * expectedEach
 
     -- Special handling for lockboxes (Phase 6)
     if bucket == "container_lockbox" then
         -- Lockboxes have 0 expected value, don't post to ledger
         -- Just track in items aggregate
         GoldPH_SessionManager:AddItem(session, itemID, itemName, quality, bucket, count, expectedEach)
+
+        -- If looted via pickpocket, increment lockboxesLooted counter
+        if isPickpocket then
+            session.pickpocket.lockboxesLooted = session.pickpocket.lockboxesLooted + count
+
+            if GoldPH_DB.debug.verbose then
+                print(string.format("[GoldPH] Pickpocket lockbox looted: %s x%d", itemName, count))
+            end
+        end
+
         return
     end
 
@@ -222,7 +305,6 @@ function GoldPH_Events:OnLootedItem(message)
     local assetAccount = "Assets:Inventory:" .. self:BucketToAccountName(bucket)
     local incomeAccount = "Income:ItemsLooted:" .. self:BucketToAccountName(bucket)
 
-    local expectedTotal = count * expectedEach
     GoldPH_Ledger:Post(session, assetAccount, incomeAccount, expectedTotal)
 
     -- Add to holdings (FIFO lot)
@@ -230,6 +312,33 @@ function GoldPH_Events:OnLootedItem(message)
 
     -- Add to items aggregate
     GoldPH_SessionManager:AddItem(session, itemID, itemName, quality, bucket, count, expectedEach)
+
+    -- Phase 6: Pickpocket and lockbox attribution (reporting only, no double-post)
+    if isPickpocket then
+        session.pickpocket.value = session.pickpocket.value + expectedTotal
+        -- Reporting only: update ledger balance directly (no second Post to Assets)
+        if not session.ledger.balances["Income:Pickpocket:Items"] then
+            session.ledger.balances["Income:Pickpocket:Items"] = 0
+        end
+        session.ledger.balances["Income:Pickpocket:Items"] = session.ledger.balances["Income:Pickpocket:Items"] + expectedTotal
+
+        if GoldPH_DB.debug.verbose then
+            print(string.format("[GoldPH] Pickpocket item: %s x%d (%s)", itemName, count, GoldPH_Ledger:FormatMoney(expectedTotal)))
+        end
+    end
+
+    if isFromLockbox then
+        session.pickpocket.fromLockbox.value = session.pickpocket.fromLockbox.value + expectedTotal
+        -- Reporting only: update ledger balance directly (no second Post to Assets)
+        if not session.ledger.balances["Income:Pickpocket:FromLockbox:Items"] then
+            session.ledger.balances["Income:Pickpocket:FromLockbox:Items"] = 0
+        end
+        session.ledger.balances["Income:Pickpocket:FromLockbox:Items"] = session.ledger.balances["Income:Pickpocket:FromLockbox:Items"] + expectedTotal
+
+        if GoldPH_DB.debug.verbose then
+            print(string.format("[GoldPH] Lockbox item: %s x%d (%s)", itemName, count, GoldPH_Ledger:FormatMoney(expectedTotal)))
+        end
+    end
 
     -- Debug logging
     if GoldPH_DB.debug.verbose then
@@ -472,6 +581,38 @@ function GoldPH_Events:OnQuestTurnedIn(questID, xpReward, moneyReward)
     GoldPH_HUD:Update()
 end
 
+--------------------------------------------------
+-- Phase 6: Pickpocket Context Detection
+--------------------------------------------------
+
+-- Handle UNIT_SPELLCAST_SUCCEEDED event (for pickpocket detection)
+-- @param unitTarget: Unit that cast the spell (e.g., "player", "target")
+-- @param castGUID: Cast GUID
+-- @param spellID: Spell ID
+function GoldPH_Events:OnUnitSpellcastSucceeded(unitTarget, castGUID, spellID)
+    -- Only process player spells
+    if unitTarget ~= "player" then
+        return
+    end
+
+    -- Get spell name from spell ID
+    local spellName = GetSpellInfo(spellID)
+    if not spellName then
+        return
+    end
+
+    -- Check if this is Pick Pocket spell
+    -- In Classic, the spell name is "Pick Pocket" (with space)
+    if spellName == "Pick Pocket" or spellName == "Pickpocket" then
+        -- Set attribution window: 2 seconds after cast
+        state.pickpocketActiveUntil = GetTime() + 2.0
+
+        if GoldPH_DB.debug.verbose then
+            print(string.format("[GoldPH] Pick Pocket detected, attribution window: %.1f seconds", 2.0))
+        end
+    end
+end
+
 -- Hook repair functions to track costs
 function GoldPH_Events:HookRepairFunctions()
     -- Hook RepairAllItems (repair all button)
@@ -490,6 +631,17 @@ function GoldPH_Events:HookTaxiFunctions()
     if TakeTaxiNode then
         hooksecurefunc("TakeTaxiNode", function(nodeIndex)
             self:OnTakeTaxiNode(nodeIndex)
+        end)
+    end
+end
+
+-- Hook lockbox opening (Phase 6)
+function GoldPH_Events:HookLockboxOpening()
+    -- Try to hook UseContainerItem for lockbox detection
+    -- Note: In Classic, this may not be hookable, so we also use BAG_UPDATE fallback
+    if UseContainerItem and hooksecurefunc then
+        hooksecurefunc("UseContainerItem", function(bag, slot)
+            self:OnUseContainerItemForLockbox(bag, slot)
         end)
     end
 end
@@ -661,15 +813,98 @@ function GoldPH_Events:SnapshotBags()
     return snapshot
 end
 
--- Handle BAG_UPDATE when merchant is open (detects vendor sales)
+-- Build per-slot snapshot of lockbox items only (for BAG_UPDATE lockbox-open detection)
+-- Returns: [ "bag_slot" ] = { itemID = n, count = n }
+function GoldPH_Events:SnapshotLockboxesBySlot()
+    local snapshot = {}
+    for bag = 0, 4 do
+        local numSlots = GetBagNumSlots(bag)
+        for slot = 1, numSlots do
+            local itemCount, itemLink = GetBagItemInfo(bag, slot)
+            if itemLink and itemCount and itemCount > 0 then
+                local itemID = self:ExtractItemID(itemLink)
+                if itemID then
+                    local itemName, _, quality, _, _, _, _, _, _, _, _, itemClass, itemSubClass = GetItemInfo(itemID)
+                    if itemName then
+                        local bucket = GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass, itemSubClass)
+                        if bucket == "container_lockbox" then
+                            local key = string.format("%d_%d", bag, slot)
+                            snapshot[key] = { itemID = itemID, count = itemCount }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return snapshot
+end
+
+-- Detect lockbox opening via BAG_UPDATE: compare previous vs current lockbox slots (Classic fallback)
+function GoldPH_Events:OnBagUpdateLockboxCheck(session)
+    if not session then
+        return
+    end
+    if not session.pickpocket then
+        session.pickpocket = {
+            gold = 0,
+            value = 0,
+            lockboxesLooted = 0,
+            lockboxesOpened = 0,
+            fromLockbox = { gold = 0, value = 0 },
+        }
+    end
+
+    local current = self:SnapshotLockboxesBySlot()
+    local previous = state.lockboxBagSnapshot
+
+    -- First run: just store snapshot, no opened count
+    if not previous then
+        state.lockboxBagSnapshot = current
+        return
+    end
+
+    local opened = 0
+    local openedItemID = nil
+    for key, prevSlot in pairs(previous) do
+        local curSlot = current[key]
+        local prevCount = prevSlot.count or 0
+        local curCount = (curSlot and curSlot.count) or 0
+        if prevCount > curCount then
+            opened = opened + (prevCount - curCount)
+            if not openedItemID then
+                openedItemID = prevSlot.itemID
+            end
+        end
+    end
+
+    -- Also check: slot had lockbox, now empty or different item (current[key] nil)
+    -- Already covered: curCount = 0 when curSlot is nil, so prevCount - 0 = prevCount
+
+    if opened > 0 then
+        session.pickpocket.lockboxesOpened = session.pickpocket.lockboxesOpened + opened
+        state.openingLockboxUntil = GetTime() + 3.0
+        state.openingLockboxItemID = openedItemID
+
+        if GoldPH_DB.debug.verbose then
+            local name = openedItemID and (GetItemInfo(openedItemID) or "?") or "?"
+            print(string.format("[GoldPH] Lockbox opened (BAG_UPDATE): %s x%d, attribution window: %.1f seconds",
+                name, opened, 3.0))
+        end
+    end
+
+    state.lockboxBagSnapshot = current
+end
+
+-- Handle BAG_UPDATE when merchant is open (detects vendor sales) or when not (lockbox opening fallback)
 function GoldPH_Events:OnBagUpdateAtMerchant()
     local session = GoldPH_SessionManager:GetActiveSession()
     if not session then
         return
     end
 
-    -- Only track if merchant window is open
+    -- Phase 6: When NOT at merchant, detect lockbox opening via bag diff (UseContainerItem often not hookable in Classic)
     if not state.merchantOpen then
+        self:OnBagUpdateLockboxCheck(session)
         return
     end
 
@@ -723,6 +958,62 @@ function GoldPH_Events:OnBagUpdateAtMerchant()
     -- Update snapshot for next check
     state.bagSnapshot = newSnapshot
     state.lastMoneyCheck = currentMoney
+end
+
+-- Handle UseContainerItem for lockbox opening detection (Phase 6)
+-- Called when player uses an item from their bags (including lockboxes)
+function GoldPH_Events:OnUseContainerItemForLockbox(bag, slot)
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        return -- No active session
+    end
+
+    -- Only process if NOT at merchant (lockboxes are opened, not sold)
+    if state.merchantOpen then
+        return
+    end
+
+    -- Ensure pickpocket structure exists
+    if not session.pickpocket then
+        session.pickpocket = {
+            gold = 0,
+            value = 0,
+            lockboxesLooted = 0,
+            lockboxesOpened = 0,
+            fromLockbox = { gold = 0, value = 0 },
+        }
+    end
+
+    -- Get item info
+    local itemCount, itemLink = GetBagItemInfo(bag, slot)
+    if not itemLink or not itemCount then
+        return
+    end
+
+    local itemID = self:ExtractItemID(itemLink)
+    if not itemID then
+        return
+    end
+
+    -- Get item name and classify
+    local itemName, _, quality, _, _, _, _, _, _, _, _, itemClass, itemSubClass = GetItemInfo(itemID)
+    if not itemName then
+        return
+    end
+
+    -- Check if this is a lockbox
+    local bucket = GoldPH_Valuation:ClassifyItem(itemID, itemName, quality, itemClass, itemSubClass)
+    if bucket == "container_lockbox" then
+        -- Set attribution window: 3 seconds after opening
+        state.openingLockboxUntil = GetTime() + 3.0
+        state.openingLockboxItemID = itemID
+        session.pickpocket.lockboxesOpened = session.pickpocket.lockboxesOpened + 1
+
+        if GoldPH_DB.debug.verbose then
+            print(string.format("[GoldPH] Lockbox opened: %s (ID: %d), attribution window: %.1f seconds",
+                itemName, itemID, 3.0))
+        end
+    end
 end
 
 -- Legacy function for compatibility (now unused but kept for test injection)

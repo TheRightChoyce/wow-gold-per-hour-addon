@@ -57,7 +57,7 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
         -- Initialize event system (registers additional events)
         GoldPH_Events:Initialize(GoldPH_MainFrame)
 
-        print("[GoldPH] Version 0.5.0 (Phase 5: Quest Rewards & Travel Expenses) loaded. Type /goldph help for commands.")
+        print("[GoldPH] Version 0.6.0 (Phase 6: Rogue Pickpocketing & Lockboxes) loaded. Type /goldph help for commands.")
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Ensure settings exist (for existing SavedVariables)
         if GoldPH_DB.settings.hudVisible == nil then
@@ -101,6 +101,7 @@ local function ShowHelp()
     print("|cffffff00/goldph debug ledger|r - Show ledger balances")
     print("|cffffff00/goldph debug holdings|r - Show holdings (Phase 3+)")
     print("|cffffff00/goldph debug prices|r - Show available price sources (TSM, Custom AH)")
+    print("|cffffff00/goldph debug pickpocket|r - Show pickpocket statistics (Phase 6)")
     print("")
     print("|cff00ff00=== Test Commands ===|r")
     print("|cffffff00/goldph test run|r - Run automated test suite")
@@ -182,8 +183,10 @@ local function HandleCommand(msg)
             GoldPH_Debug:ShowHoldings()
         elseif subCmd == "prices" then
             GoldPH_Debug:ShowPriceSources()
+        elseif subCmd == "pickpocket" then
+            GoldPH_Debug:ShowPickpocket()
         else
-            print("[GoldPH] Debug commands: on, off, verbose, dump, ledger, holdings, prices")
+            print("[GoldPH] Debug commands: on, off, verbose, dump, ledger, holdings, prices, pickpocket")
         end
 
     -- Test commands
