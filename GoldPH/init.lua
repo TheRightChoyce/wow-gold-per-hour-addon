@@ -45,6 +45,7 @@ end
 -- Addon loaded event handler
 GoldPH_MainFrame:RegisterEvent("ADDON_LOADED")
 GoldPH_MainFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+GoldPH_MainFrame:RegisterEvent("PLAYER_LOGOUT")
 GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
     local addonName = select(1, ...)  -- First vararg for ADDON_LOADED event
     
@@ -57,7 +58,7 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
         -- Initialize event system (registers additional events)
         GoldPH_Events:Initialize(GoldPH_MainFrame)
 
-        print("[GoldPH] Version 0.6.0 (Phase 6: Rogue Pickpocketing & Lockboxes) loaded. Type /goldph help for commands.")
+        print("[GoldPH] Version 0.7.0 (Phase 7: Gathering & Sessions UI) loaded. Type /goldph help for commands.")
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Ensure settings exist (for existing SavedVariables)
         if GoldPH_DB.settings.hudVisible == nil then
@@ -65,6 +66,30 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
         end
         if GoldPH_DB.settings.hudMinimized == nil then
             GoldPH_DB.settings.hudMinimized = false
+        end
+
+        -- Ensure active session has duration tracking fields
+        local session = GoldPH_DB.activeSession
+        if session then
+            local wasNewLogin = false
+            if session.accumulatedDuration == nil then
+                session.accumulatedDuration = 0
+            end
+            if session.currentLoginAt == nil then
+                session.currentLoginAt = time()
+                wasNewLogin = true
+            end
+
+            -- Verbose debug: log login segment initialization
+            if GoldPH_DB.debug.verbose then
+                print(string.format(
+                    "[GoldPH Debug] PLAYER_ENTERING_WORLD | Session #%d | accumulatedDuration=%d | currentLoginAt=%s | wasNewLogin=%s",
+                    session.id,
+                    session.accumulatedDuration,
+                    tostring(session.currentLoginAt),
+                    tostring(wasNewLogin)
+                ))
+            end
         end
 
         -- Auto-restore HUD visibility and state if session is active
@@ -76,6 +101,30 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
                 GoldPH_HUD:Update()
             end
         end
+    elseif event == "PLAYER_LOGOUT" then
+        -- Fold the current login segment into the session accumulator on logout
+        local session = GoldPH_DB.activeSession
+        if session and session.currentLoginAt then
+            local now = time()
+            local segmentDuration = now - session.currentLoginAt
+            local oldAccumulated = session.accumulatedDuration
+            session.accumulatedDuration = session.accumulatedDuration + segmentDuration
+            session.currentLoginAt = nil
+
+            -- Verbose debug: log logout segment folding
+            if GoldPH_DB.debug.verbose then
+                print(string.format(
+                    "[GoldPH Debug] PLAYER_LOGOUT | Session #%d | segmentDuration=%ds | oldAccumulated=%d | newAccumulated=%d",
+                    session.id,
+                    segmentDuration,
+                    oldAccumulated,
+                    session.accumulatedDuration
+                ))
+            end
+        end
+
+        -- Route logout to event system as well (in case it needs it)
+        GoldPH_Events:OnEvent(event, ...)
     else
         -- Route other events to GoldPH_Events
         -- Pass all event arguments (not just addonName) for events like QUEST_TURNED_IN

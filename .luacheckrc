@@ -63,6 +63,7 @@ globals = {
     "GetMoney",
     "GetTime",
     "time",
+    "date",  -- WoW date formatting function
     "GetZoneText",
     "GetRealmName",
     "UnitName",

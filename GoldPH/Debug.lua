@@ -191,6 +191,10 @@ function GoldPH_Debug:RunTests()
     local test8 = self:Test_PickpocketStats()
     table.insert(testResults, test8)
 
+    -- Phase 7 tests
+    local test9 = self:Test_SessionDurationAccumulator()
+    table.insert(testResults, test9)
+
     -- Summary
     local passed = 0
     local failed = 0
@@ -510,6 +514,58 @@ function GoldPH_Debug:Test_PickpocketStats()
     return {name = testName, passed = passed, message = message}
 end
 
+-- Test: Session duration accumulator (Phase 7)
+function GoldPH_Debug:Test_SessionDurationAccumulator()
+    local testName = "Session Duration Accumulator"
+
+    -- Ensure we start from a clean state
+    if GoldPH_SessionManager:GetActiveSession() then
+        GoldPH_SessionManager:StopSession()
+    end
+
+    local ok, message = GoldPH_SessionManager:StartSession()
+    if not ok then
+        self:LogTestResult(testName, false, "Failed to start session: " .. (message or "unknown error"))
+        return {name = testName, passed = false, message = message or "Failed to start session"}
+    end
+
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        self:LogTestResult(testName, false, "No active session after StartSession")
+        return {name = testName, passed = false, message = "No active session after StartSession"}
+    end
+
+    -- Case 1: Completed session uses accumulatedDuration exactly
+    session.accumulatedDuration = 1234
+    session.currentLoginAt = nil
+
+    local metrics = GoldPH_SessionManager:GetMetrics(session)
+    local pass1 = (metrics.durationSec == 1234)
+
+    -- Case 2: StopSession keeps durationSec == accumulatedDuration
+    session.accumulatedDuration = 100
+    session.currentLoginAt = time() - 10
+
+    GoldPH_SessionManager:StopSession()
+
+    local pass2 = (session.durationSec == session.accumulatedDuration)
+
+    local passed = pass1 and pass2
+    local msg
+    if not pass1 then
+        msg = string.format("Expected durationSec=1234, got %d", metrics.durationSec or -1)
+    elseif not pass2 then
+        msg = string.format("durationSec (%d) did not match accumulatedDuration (%d) after StopSession",
+            session.durationSec or -1, session.accumulatedDuration or -1)
+    else
+        msg = "OK"
+    end
+
+    self:LogTestResult(testName, passed, msg)
+
+    return {name = testName, passed = passed, message = msg}
+end
+
 -- Log test result
 function GoldPH_Debug:LogTestResult(testName, passed, message)
     local color = passed and COLOR_GREEN or COLOR_RED
@@ -531,7 +587,13 @@ function GoldPH_Debug:DumpSession()
 
     print(COLOR_YELLOW .. "=== GoldPH Session Dump ===" .. COLOR_RESET)
     print(string.format("Session ID: %d", session.id))
-    print(string.format("Started: %s", os.date("%Y-%m-%d %H:%M:%S", session.startedAt)))
+    local dateStr
+    if date then
+        dateStr = date("%Y-%m-%d %H:%M:%S", session.startedAt)
+    else
+        dateStr = tostring(session.startedAt)
+    end
+    print(string.format("Started: %s", dateStr))
     print(string.format("Duration: %s", GoldPH_SessionManager:FormatDuration(time() - session.startedAt)))
     print(string.format("Zone: %s", session.zone))
 

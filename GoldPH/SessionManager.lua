@@ -16,12 +16,18 @@ function GoldPH_SessionManager:StartSession()
     GoldPH_DB.meta.lastSessionId = GoldPH_DB.meta.lastSessionId + 1
     local sessionId = GoldPH_DB.meta.lastSessionId
 
+    local now = time()
+
     -- Create new session
     local session = {
         id = sessionId,
-        startedAt = time(),
+        startedAt = now,
         endedAt = nil,
         durationSec = 0,
+
+        -- Phase 7: Accurate duration across logins
+        accumulatedDuration = 0,  -- Total in-game seconds played this session
+        currentLoginAt = now,     -- Timestamp of current login segment (nil when logged out)
 
         zone = GetZoneText() or "Unknown",
 
@@ -51,6 +57,23 @@ function GoldPH_SessionManager:StartSession()
     -- Set as active session
     GoldPH_DB.activeSession = session
 
+    -- Verbose debug: log initial duration tracking state
+    if GoldPH_DB.debug.verbose then
+        local dateStr
+        if date then
+            dateStr = date("%Y-%m-%d %H:%M:%S", session.startedAt)
+        else
+            dateStr = tostring(session.startedAt)
+        end
+        print(string.format(
+            "[GoldPH Debug] Session #%d started at %s | accumulatedDuration=%d | currentLoginAt=%s",
+            sessionId,
+            dateStr,
+            session.accumulatedDuration or 0,
+            tostring(session.currentLoginAt)
+        ))
+    end
+
     return true, "Session #" .. sessionId .. " started"
 end
 
@@ -62,9 +85,17 @@ function GoldPH_SessionManager:StopSession()
 
     local session = GoldPH_DB.activeSession
 
+    local now = time()
+
+    -- Fold any active login segment into the accumulator
+    if session.currentLoginAt then
+        session.accumulatedDuration = session.accumulatedDuration + (now - session.currentLoginAt)
+        session.currentLoginAt = nil
+    end
+
     -- Finalize session
-    session.endedAt = time()
-    session.durationSec = session.endedAt - session.startedAt
+    session.endedAt = now
+    session.durationSec = session.accumulatedDuration
 
     -- Save to history
     GoldPH_DB.sessions[session.id] = session
@@ -87,11 +118,14 @@ function GoldPH_SessionManager:GetMetrics(session)
         return nil
     end
 
+    local now = time()
+    local accumulated = session.accumulatedDuration
     local durationSec
-    if session.endedAt then
-        durationSec = session.durationSec
+
+    if session.currentLoginAt then
+        durationSec = accumulated + (now - session.currentLoginAt)
     else
-        durationSec = time() - session.startedAt
+        durationSec = accumulated
     end
 
     local durationHours = durationSec / 3600
