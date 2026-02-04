@@ -199,9 +199,11 @@ function GoldPH_Valuation:ComputeExpectedValue(itemID, bucket)
         return vendorPrice
     elseif bucket == "gathering" then
         -- Gathering: use AH price if available, else vendor price
+        -- Always ensure expected value is at least vendor price (guaranteed liquidation path)
         local ahPrice = self:GetAHPrice(itemID)
         if ahPrice > 0 then
-            return math.floor(ahPrice * AH_FRICTION)
+            local adjustedAH = math.floor(ahPrice * AH_FRICTION)
+            return math.max(vendorPrice, adjustedAH)
         else
             return vendorPrice
         end
@@ -235,6 +237,7 @@ end
 -- Compute rare/multi-path expected value
 -- Formula: EV = 0.50 * V_vendor + 0.35 * V_DE + 0.15 * V_AH
 --          Final = min(EV, 1.25 * max(V_vendor, V_DE))
+--          Final = max(Final, V_vendor) -- Vendor floor (guaranteed liquidation path)
 function GoldPH_Valuation:ComputeRareMultiEV(itemID, vendorPrice)
     local deValue = self:GetDEValue(itemID)
     local ahPrice = self:GetAHPrice(itemID)
@@ -245,9 +248,10 @@ function GoldPH_Valuation:ComputeRareMultiEV(itemID, vendorPrice)
     -- Apply cap
     local maxValue = math.max(vendorPrice, deValue)
     local cap = 1.25 * maxValue
+    local cappedEV = math.min(ev, cap)
 
-    -- Return conservative estimate
-    return math.floor(math.min(ev, cap))
+    -- Ensure expected value is never below vendor price (guaranteed liquidation path)
+    return math.max(vendorPrice, math.floor(cappedEV))
 end
 
 --------------------------------------------------
