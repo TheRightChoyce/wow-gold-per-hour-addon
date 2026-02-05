@@ -165,8 +165,8 @@ function GoldPH_Ledger:FormatMoney(copper)
         result = string.format("%dc", copperRem)
     end
 
-    -- Add negative sign if needed
-    if isNegative then
+    -- Add negative sign if needed, but never for zero values
+    if isNegative and result ~= "0c" then
         return "-" .. result
     else
         return result
@@ -200,8 +200,8 @@ function GoldPH_Ledger:FormatMoneyShort(copper)
         result = "0g"
     end
 
-    -- Add negative sign if needed
-    if isNegative then
+    -- Add negative sign if needed, but never for zero values
+    if isNegative and result ~= "0g" then
         return "-" .. result
     else
         return result

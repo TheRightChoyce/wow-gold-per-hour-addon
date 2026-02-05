@@ -230,14 +230,15 @@ end
 
 -- Format money for accounting display (uses parentheses for negatives)
 local function FormatAccounting(copper)
-    if not copper then
-        return "0g"
+    if not copper or copper == 0 then
+        return "0c"
     end
     
     local isNegative = copper < 0
     local formatted = GoldPH_Ledger:FormatMoney(math.abs(copper))
     
-    if isNegative then
+    -- Never show parentheses for zero values
+    if isNegative and formatted ~= "0c" then
         return "(" .. formatted .. ")"
     else
         return formatted
@@ -246,14 +247,15 @@ end
 
 -- Format money short for accounting display (uses parentheses for negatives)
 local function FormatAccountingShort(copper)
-    if not copper then
+    if not copper or copper == 0 then
         return "0g"
     end
     
     local isNegative = copper < 0
     local formatted = GoldPH_Ledger:FormatMoneyShort(math.abs(copper))
     
-    if isNegative then
+    -- Never show parentheses for zero values
+    if isNegative and formatted ~= "0g" then
         return "(" .. formatted .. ")"
     else
         return formatted
