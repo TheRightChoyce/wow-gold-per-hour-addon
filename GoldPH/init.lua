@@ -23,6 +23,13 @@ local function InitializeSavedVariables()
                 trackZone = true,
                 hudVisible = true,   -- Track HUD visibility state
                 hudMinimized = false, -- Track HUD minimize state
+                historyVisible = false,
+                historyMinimized = false,
+                historyPosition = nil,
+                historyActiveTab = "summary",
+                historyFilters = {
+                    sort = "totalPerHour",
+                },
             },
 
             priceOverrides = {},
@@ -142,6 +149,7 @@ local function ShowHelp()
     print("|cffffff00/goldph stop|r - Stop the active session")
     print("|cffffff00/goldph show|r - Show/hide the HUD")
     print("|cffffff00/goldph status|r - Show current session status")
+    print("|cffffff00/goldph history|r - Open session history")
     print("")
     print("|cff00ff00=== Debug Commands ===|r")
     print("|cffffff00/goldph debug on|off|r - Enable/disable debug mode (auto-run invariants)")
@@ -172,6 +180,25 @@ local function HandleCommand(msg)
     local cmd = args[1] or "help"
     cmd = cmd:lower()
 
+    -- Allow short debug-style commands to fall through, e.g.:
+    -- "/ph dump" -> "/goldph debug dump"
+    -- This also works for other debug subcommands like ledger, holdings, prices, pickpocket, etc.
+    local debugShortcuts = {
+        dump = true,
+        ledger = true,
+        holdings = true,
+        prices = true,
+        pickpocket = true,
+        on = true,
+        off = true,
+        verbose = true,
+    }
+
+    if debugShortcuts[cmd] then
+        table.insert(args, 1, "debug")
+        cmd = "debug"
+    end
+
     -- Session commands
     if cmd == "start" then
         local ok, message = GoldPH_SessionManager:StartSession()
@@ -200,6 +227,9 @@ local function HandleCommand(msg)
         else
             print("[GoldPH] No active session")
         end
+
+    elseif cmd == "history" then
+        GoldPH_History:Toggle()
 
     -- Debug commands
     elseif cmd == "debug" then
@@ -307,4 +337,5 @@ end
 -- Register slash commands
 SLASH_GOLDPH1 = "/goldph"
 SLASH_GOLDPH2 = "/gph"
+SLASH_GOLDPH3 = "/ph"
 SlashCmdList["GOLDPH"] = HandleCommand

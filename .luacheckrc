@@ -42,13 +42,21 @@ globals = {
     "GoldPH_Valuation",
     "GoldPH_Holdings",
     "GoldPH_PriceSources",
-    
+
+    -- GoldPH History UI (Phase 1-4)
+    "GoldPH_Index",
+    "GoldPH_History",
+    "GoldPH_History_Filters",
+    "GoldPH_History_List",
+    "GoldPH_History_Detail",
+
     -- GoldPH-specific WoW API usage
     "TSM_API",  -- Optional addon, checked at runtime
     "TakeTaxiNode",  -- Taxi API (may not exist in all versions)
     "TaxiNodeCost",  -- Taxi API (may not exist in all versions)
     "SLASH_GOLDPH1",  -- Slash command registration
     "SLASH_GOLDPH2",  -- Slash command registration
+    "SLASH_GOLDPH3",  -- Slash command registration
     "SlashCmdList",  -- Slash command system
     
     -- WoW Events (used as strings, but luacheck may check them)
@@ -98,6 +106,26 @@ globals = {
     "GameFontNormalSmall",
     "GameFontNormalLarge",
     "BackdropTemplate",
+    "GameTooltip",
+
+    -- UI Dropdown menus (used in History UI)
+    "UIDropDownMenuTemplate",
+    "UIDropDownMenu_Initialize",
+    "UIDropDownMenu_CreateInfo",
+    "UIDropDownMenu_AddButton",
+    "UIDropDownMenu_SetWidth",
+    "UIDropDownMenu_SetButtonWidth",
+    "ToggleDropDownMenu",
+    "CloseDropDownMenus",
+
+    -- UI Templates
+    "UIPanelCloseButton",
+    "UICheckButtonTemplate",
+    "InputBoxTemplate",
+    "UIPanelScrollBarTemplate",
+    "UISpecialFrames",  -- For Escape key handling
+
+    -- C_* APIs
     "C_Container",
     "C_Timer",
     "C_TaxiMap",

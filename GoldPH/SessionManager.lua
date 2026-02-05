@@ -103,6 +103,11 @@ function GoldPH_SessionManager:StopSession()
     -- Clear active session
     GoldPH_DB.activeSession = nil
 
+    -- Mark index stale for rebuild
+    if GoldPH_Index then
+        GoldPH_Index:MarkStale()
+    end
+
     return true, "Session #" .. session.id .. " stopped and saved (duration: " ..
                  self:FormatDuration(session.durationSec) .. ")"
 end
@@ -119,13 +124,19 @@ function GoldPH_SessionManager:GetMetrics(session)
     end
 
     local now = time()
-    local accumulated = session.accumulatedDuration
     local durationSec
 
-    if session.currentLoginAt then
-        durationSec = accumulated + (now - session.currentLoginAt)
+    -- Phase 7: Use new duration tracking if available
+    if session.accumulatedDuration then
+        local accumulated = session.accumulatedDuration
+        if session.currentLoginAt then
+            durationSec = accumulated + (now - session.currentLoginAt)
+        else
+            durationSec = accumulated
+        end
     else
-        durationSec = accumulated
+        -- Backward compatibility: Fall back to legacy durationSec for old sessions
+        durationSec = session.durationSec or 0
     end
 
     local durationHours = durationSec / 3600

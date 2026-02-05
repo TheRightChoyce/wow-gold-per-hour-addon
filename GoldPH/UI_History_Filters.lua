@@ -1,0 +1,285 @@
+--[[
+    UI_History_Filters.lua - Filter bar component for GoldPH History
+
+    Provides search, sort, zone, character, and flag filters.
+]]
+
+local GoldPH_History_Filters = {
+    parent = nil,
+    historyController = nil,
+
+    -- UI elements
+    searchBox = nil,
+    sortDropdown = nil,
+    zoneDropdown = nil,
+    charDropdown = nil,
+    gatheringCheckbox = nil,
+    pickpocketCheckbox = nil,
+
+    -- Search debouncing
+    searchTimer = nil,
+    searchDebounceDelay = 0.2,  -- 200ms delay
+}
+
+--------------------------------------------------
+-- Initialize
+--------------------------------------------------
+function GoldPH_History_Filters:Initialize(parent, historyController)
+    self.parent = parent
+    self.historyController = historyController
+
+    -- Search box (left side, 120px width)
+    local searchBox = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+    searchBox:SetSize(120, 25)
+    searchBox:SetPoint("LEFT", parent, "LEFT", 10, 0)
+    searchBox:SetAutoFocus(false)
+    searchBox:SetMaxLetters(30)
+    searchBox:SetScript("OnTextChanged", function(self)
+        GoldPH_History_Filters:OnSearchChanged(self:GetText())
+    end)
+    searchBox:SetScript("OnEnterPressed", function(self)
+        self:ClearFocus()
+    end)
+    searchBox:SetScript("OnEscapePressed", function(self)
+        self:SetText("")
+        self:ClearFocus()
+    end)
+    self.searchBox = searchBox
+
+    -- Search label
+    local searchLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    searchLabel:SetPoint("BOTTOM", searchBox, "TOP", 0, 2)
+    searchLabel:SetText("Search")
+
+    -- Sort dropdown (next to search)
+    local sortBtn = self:CreateDropdownButton(parent, "Sort", 80)
+    sortBtn:SetPoint("LEFT", searchBox, "RIGHT", 10, 0)
+    sortBtn:SetScript("OnClick", function(self)
+        GoldPH_History_Filters:ShowSortMenu(self)
+    end)
+    self.sortDropdown = sortBtn
+
+    -- Zone dropdown
+    local zoneBtn = self:CreateDropdownButton(parent, "Zone: All", 100)
+    zoneBtn:SetPoint("LEFT", sortBtn, "RIGHT", 5, 0)
+    zoneBtn:SetScript("OnClick", function(self)
+        GoldPH_History_Filters:ShowZoneMenu(self)
+    end)
+    self.zoneDropdown = zoneBtn
+
+    -- Character dropdown
+    local charBtn = self:CreateDropdownButton(parent, "Char: All", 100)
+    charBtn:SetPoint("LEFT", zoneBtn, "RIGHT", 5, 0)
+    charBtn:SetScript("OnClick", function(self)
+        GoldPH_History_Filters:ShowCharMenu(self)
+    end)
+    self.charDropdown = charBtn
+
+    -- Gathering checkbox
+    local gatheringCB = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+    gatheringCB:SetSize(20, 20)
+    gatheringCB:SetPoint("LEFT", charBtn, "RIGHT", 10, 0)
+    gatheringCB:SetScript("OnClick", function(self)
+        GoldPH_History_Filters:OnFilterChanged()
+    end)
+    self.gatheringCheckbox = gatheringCB
+
+    local gatheringLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    gatheringLabel:SetPoint("LEFT", gatheringCB, "RIGHT", 0, 0)
+    gatheringLabel:SetText("Gather")
+
+    -- Pickpocket checkbox
+    local pickpocketCB = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+    pickpocketCB:SetSize(20, 20)
+    pickpocketCB:SetPoint("LEFT", gatheringLabel, "RIGHT", 5, 0)
+    pickpocketCB:SetScript("OnClick", function(self)
+        GoldPH_History_Filters:OnFilterChanged()
+    end)
+    self.pickpocketCheckbox = pickpocketCB
+
+    local pickpocketLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    pickpocketLabel:SetPoint("LEFT", pickpocketCB, "RIGHT", 0, 0)
+    pickpocketLabel:SetText("Pickpkt")
+end
+
+--------------------------------------------------
+-- Create Dropdown Button Helper
+--------------------------------------------------
+function GoldPH_History_Filters:CreateDropdownButton(parent, text, width)
+    local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    btn:SetSize(width, 25)
+    btn:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true,
+        tileSize = 16,
+        edgeSize = 12,
+        insets = {left = 3, right = 3, top = 3, bottom = 3}
+    })
+    btn:SetBackdropColor(0.1, 0.1, 0.1, 1)
+    btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+
+    local btnText = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    btnText:SetPoint("CENTER")
+    btnText:SetText(text)
+    btn.text = btnText
+
+    -- Arrow icon (using WoW-compatible font character)
+    local arrow = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    arrow:SetPoint("RIGHT", btn, "RIGHT", -3, 0)
+    arrow:SetText("v")
+    arrow:SetTextColor(0.8, 0.8, 0.8)  -- Light gray for visibility
+
+    return btn
+end
+
+--------------------------------------------------
+-- Show Sort Menu
+--------------------------------------------------
+function GoldPH_History_Filters:ShowSortMenu(button)
+    local menu = CreateFrame("Frame", "GoldPH_SortMenu", button, "UIDropDownMenuTemplate")
+
+    local function OnSortClick(sortField, label)
+        self.historyController.filterState.sort = sortField
+        self.sortDropdown.text:SetText(label)
+        self:OnFilterChanged()
+        CloseDropDownMenus()
+    end
+
+    local sortOptions = {
+        {field = "totalPerHour", label = "Total g/hr"},
+        {field = "cashPerHour", label = "Cash g/hr"},
+        {field = "expectedPerHour", label = "Expected g/hr"},
+        {field = "date", label = "Date"},
+    }
+
+    UIDropDownMenu_Initialize(menu, function()
+        for _, opt in ipairs(sortOptions) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = opt.label
+            info.func = function() OnSortClick(opt.field, opt.label) end
+            info.checked = (self.historyController.filterState.sort == opt.field)
+            UIDropDownMenu_AddButton(info)
+        end
+    end, "MENU")
+
+    ToggleDropDownMenu(1, nil, menu, button, 0, 0)
+end
+
+--------------------------------------------------
+-- Show Zone Menu
+--------------------------------------------------
+function GoldPH_History_Filters:ShowZoneMenu(button)
+    local menu = CreateFrame("Frame", "GoldPH_ZoneMenu", button, "UIDropDownMenuTemplate")
+
+    local function OnZoneClick(zone)
+        self.historyController.filterState.zone = zone
+        if zone then
+            local zoneName = zone
+            if #zoneName > 12 then
+                zoneName = zoneName:sub(1, 9) .. "..."
+            end
+            self.zoneDropdown.text:SetText("Zone: " .. zoneName)
+        else
+            self.zoneDropdown.text:SetText("Zone: All")
+        end
+        self:OnFilterChanged()
+        CloseDropDownMenus()
+    end
+
+    UIDropDownMenu_Initialize(menu, function()
+        -- Add "All" option
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = "All Zones"
+        info.func = function() OnZoneClick(nil) end
+        info.checked = (self.historyController.filterState.zone == nil)
+        UIDropDownMenu_AddButton(info)
+
+        -- Add zones
+        local zones = GoldPH_Index:GetZones()
+        for _, zone in ipairs(zones) do
+            local zoneInfo = UIDropDownMenu_CreateInfo()
+            zoneInfo.text = zone
+            zoneInfo.func = function() OnZoneClick(zone) end
+            zoneInfo.checked = (self.historyController.filterState.zone == zone)
+            UIDropDownMenu_AddButton(zoneInfo)
+        end
+    end, "MENU")
+
+    ToggleDropDownMenu(1, nil, menu, button, 0, 0)
+end
+
+--------------------------------------------------
+-- Show Character Menu
+--------------------------------------------------
+function GoldPH_History_Filters:ShowCharMenu(button)
+    local menu = CreateFrame("Frame", "GoldPH_CharMenu", button, "UIDropDownMenuTemplate")
+
+    local function OnCharClick(charKey)
+        if charKey then
+            self.historyController.filterState.charKeys = {[charKey] = true}
+            local charName = charKey:match("^([^-]+)")
+            self.charDropdown.text:SetText("Char: " .. (charName or charKey))
+        else
+            self.historyController.filterState.charKeys = nil
+            self.charDropdown.text:SetText("Char: All")
+        end
+        self:OnFilterChanged()
+        CloseDropDownMenus()
+    end
+
+    UIDropDownMenu_Initialize(menu, function()
+        -- Add "All" option
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = "All Characters"
+        info.func = function() OnCharClick(nil) end
+        info.checked = (self.historyController.filterState.charKeys == nil)
+        UIDropDownMenu_AddButton(info)
+
+        -- Add characters
+        local chars = GoldPH_Index:GetCharacters()
+        for _, charKey in ipairs(chars) do
+            local charInfo = UIDropDownMenu_CreateInfo()
+            local charName = charKey:match("^([^-]+)")
+            charInfo.text = charName or charKey
+            charInfo.func = function() OnCharClick(charKey) end
+            local isChecked = self.historyController.filterState.charKeys and self.historyController.filterState.charKeys[charKey]
+            charInfo.checked = isChecked
+            UIDropDownMenu_AddButton(charInfo)
+        end
+    end, "MENU")
+
+    ToggleDropDownMenu(1, nil, menu, button, 0, 0)
+end
+
+--------------------------------------------------
+-- On Search Changed (debounced)
+--------------------------------------------------
+function GoldPH_History_Filters:OnSearchChanged(text)
+    -- Cancel existing timer if any
+    if self.searchTimer then
+        self.searchTimer:Cancel()
+    end
+
+    -- Start new timer with debounce delay
+    self.searchTimer = C_Timer.NewTimer(self.searchDebounceDelay, function()
+        self.historyController.filterState.search = text
+        self:OnFilterChanged()
+        self.searchTimer = nil
+    end)
+end
+
+--------------------------------------------------
+-- On Filter Changed (trigger refresh)
+--------------------------------------------------
+function GoldPH_History_Filters:OnFilterChanged()
+    -- Update filter state from checkboxes
+    self.historyController.filterState.hasGathering = self.gatheringCheckbox:GetChecked()
+    self.historyController.filterState.hasPickpocket = self.pickpocketCheckbox:GetChecked()
+
+    -- Trigger list refresh
+    self.historyController:RefreshList()
+end
+
+-- Export module
+_G.GoldPH_History_Filters = GoldPH_History_Filters

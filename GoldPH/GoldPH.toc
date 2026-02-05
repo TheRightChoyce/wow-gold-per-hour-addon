@@ -13,6 +13,15 @@ Holdings.lua
 SessionManager.lua
 Events.lua
 Debug.lua
+
+# Index and History UI
+Index.lua
+UI_History_Filters.lua
+UI_History_List.lua
+UI_History_Detail.lua
+UI_History.lua
+
+# Main UI
 UI_HUD.lua
 
 # Entry point (must be last)
