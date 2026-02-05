@@ -620,6 +620,27 @@ function GoldPH_Debug:DumpSession()
         end
     end
 
+    -- Phase 7: Gathering nodes summary
+    if metrics.gatheringTotalNodes ~= nil then
+        print("\nGathering Nodes:")
+        print(string.format("  Total Nodes: %d", metrics.gatheringTotalNodes or 0))
+        print(string.format("  Nodes/Hour: %d", metrics.gatheringNodesPerHour or 0))
+        if metrics.gatheringNodesByType and next(metrics.gatheringNodesByType) then
+            print("  By Type:")
+            -- Sort by count descending for readability
+            local sortedTypes = {}
+            for nodeName, count in pairs(metrics.gatheringNodesByType) do
+                table.insert(sortedTypes, {name = nodeName, count = count})
+            end
+            table.sort(sortedTypes, function(a, b) return a.count > b.count end)
+            for _, node in ipairs(sortedTypes) do
+                print(string.format("    %s: %d", node.name, node.count))
+            end
+        else
+            print("  By Type: (none)")
+        end
+    end
+
     print(COLOR_YELLOW .. "===========================" .. COLOR_RESET)
 end
 

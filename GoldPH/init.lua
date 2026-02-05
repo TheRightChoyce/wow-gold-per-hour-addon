@@ -23,6 +23,11 @@ local function InitializeSavedVariables()
                 trackZone = true,
                 hudVisible = true,   -- Track HUD visibility state
                 hudMinimized = false, -- Track HUD minimize state
+                hudPoint = nil,      -- HUD position anchor point
+                hudRelativePoint = nil, -- HUD relative anchor point
+                hudXOfs = nil,      -- HUD X offset
+                hudYOfs = nil,      -- HUD Y offset
+                hudScale = 1.0,     -- HUD scale factor
             },
 
             priceOverrides = {},
@@ -58,7 +63,7 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
         -- Initialize event system (registers additional events)
         GoldPH_Events:Initialize(GoldPH_MainFrame)
 
-        print("[GoldPH] Version 0.7.0 (Phase 7: Gathering & Sessions UI) loaded. Type /goldph help for commands.")
+        print("[GoldPH] Version 0.7.9 (Phase 7: Gathering & Sessions UI) loaded. Type /goldph help for commands.")
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Ensure settings exist (for existing SavedVariables)
         if GoldPH_DB.settings.hudVisible == nil then
@@ -68,7 +73,7 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
             GoldPH_DB.settings.hudMinimized = false
         end
 
-        -- Ensure active session has duration tracking fields
+        -- Ensure active session has duration tracking fields and eventLog
         local session = GoldPH_DB.activeSession
         if session then
             local wasNewLogin = false
@@ -78,6 +83,10 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
             if session.currentLoginAt == nil then
                 session.currentLoginAt = time()
                 wasNewLogin = true
+            end
+            -- Initialize eventLog if missing (for sessions created before Phase 7.9)
+            if session.eventLog == nil then
+                session.eventLog = {}
             end
 
             -- Verbose debug: log login segment initialization
@@ -138,19 +147,22 @@ end)
 
 local function ShowHelp()
     print("|cff00ff00=== GoldPH Commands ===|r")
+    print("|cffffff00/goldph|r or |cffffff00/ph|r or |cffffff00/gph|r - All commands work with any alias")
     print("|cffffff00/goldph start|r - Start a new session")
     print("|cffffff00/goldph stop|r - Stop the active session")
     print("|cffffff00/goldph show|r - Show/hide the HUD")
+    print("|cffffff00/goldph hud scale <0.5-2.0>|r - Set HUD scale")
     print("|cffffff00/goldph status|r - Show current session status")
+    print("|cffffff00/goldph sessions|r - Open session history browser")
     print("")
     print("|cff00ff00=== Debug Commands ===|r")
     print("|cffffff00/goldph debug on|off|r - Enable/disable debug mode (auto-run invariants)")
     print("|cffffff00/goldph debug verbose on|off|r - Enable/disable verbose logging")
-    print("|cffffff00/goldph debug dump|r - Dump current session state")
-    print("|cffffff00/goldph debug ledger|r - Show ledger balances")
-    print("|cffffff00/goldph debug holdings|r - Show holdings (Phase 3+)")
-    print("|cffffff00/goldph debug prices|r - Show available price sources (TSM, Custom AH)")
-    print("|cffffff00/goldph debug pickpocket|r - Show pickpocket statistics (Phase 6)")
+    print("|cffffff00/goldph debug dump|r or |cffffff00/ph dump|r - Dump current session state")
+    print("|cffffff00/goldph debug ledger|r or |cffffff00/ph ledger|r - Show ledger balances")
+    print("|cffffff00/goldph debug holdings|r or |cffffff00/ph holdings|r - Show holdings (Phase 3+)")
+    print("|cffffff00/goldph debug prices|r or |cffffff00/ph prices|r - Show available price sources (TSM, Custom AH)")
+    print("|cffffff00/goldph debug pickpocket|r or |cffffff00/ph pickpocket|r - Show pickpocket statistics (Phase 6)")
     print("")
     print("|cff00ff00=== Test Commands ===|r")
     print("|cffffff00/goldph test run|r - Run automated test suite")
@@ -172,6 +184,22 @@ local function HandleCommand(msg)
     local cmd = args[1] or "help"
     cmd = cmd:lower()
 
+    -- Debug command shortcuts (fall through - e.g., "dump" -> "debug dump")
+    local debugShortcuts = {
+        dump = true,
+        ledger = true,
+        holdings = true,
+        prices = true,
+        pickpocket = true,
+    }
+    if debugShortcuts[cmd] then
+        -- Treat as "debug <cmd>" - replace args[1] with "debug" and set args[2] to the shortcut
+        local shortcutCmd = cmd
+        cmd = "debug"
+        args[1] = "debug"
+        args[2] = shortcutCmd
+    end
+
     -- Session commands
     if cmd == "start" then
         local ok, message = GoldPH_SessionManager:StartSession()
@@ -188,6 +216,25 @@ local function HandleCommand(msg)
     elseif cmd == "show" then
         GoldPH_HUD:Toggle()
 
+    elseif cmd == "hud" then
+        local subCmd = args[2] or ""
+        subCmd = subCmd:lower()
+        
+        if subCmd == "scale" then
+            local scale = tonumber(args[3])
+            if not scale then
+                print("[GoldPH] Usage: /goldph hud scale <0.5-2.0>")
+            elseif scale < 0.5 or scale > 2.0 then
+                print("[GoldPH] Scale must be between 0.5 and 2.0")
+            else
+                GoldPH_DB.settings.hudScale = scale
+                GoldPH_HUD:SetScale(scale)
+                print(string.format("[GoldPH] HUD scale set to %.1f", scale))
+            end
+        else
+            print("[GoldPH] Usage: /goldph hud scale <0.5-2.0>")
+        end
+
     elseif cmd == "status" then
         local session = GoldPH_SessionManager:GetActiveSession()
         if session then
@@ -200,6 +247,9 @@ local function HandleCommand(msg)
         else
             print("[GoldPH] No active session")
         end
+
+    elseif cmd == "sessions" then
+        GoldPH_SessionsUI:Toggle()
 
     -- Debug commands
     elseif cmd == "debug" then
@@ -307,4 +357,5 @@ end
 -- Register slash commands
 SLASH_GOLDPH1 = "/goldph"
 SLASH_GOLDPH2 = "/gph"
+SLASH_GOLDPH3 = "/ph"
 SlashCmdList["GOLDPH"] = HandleCommand

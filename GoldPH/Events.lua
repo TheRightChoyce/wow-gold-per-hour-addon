@@ -52,7 +52,47 @@ local state = {
     openingLockboxItemID = nil,
     -- Phase 6: BAG_UPDATE fallback for lockbox opening (when UseContainerItem isn't hookable)
     lockboxBagSnapshot = nil,  -- [ "bag_slot" ] = { itemID, count } for slots with lockboxes
+
+    -- Phase 7: Gathering node attribution
+    lastGatherTarget = nil,     -- Node/target name from UNIT_SPELLCAST_SENT
+    lastGatherTime = 0,         -- Timestamp when cast sent
+    lastGatherSpellID = nil,   -- Spell ID for success correlation
+    lastGatherSpellName = nil, -- Spell name (e.g., "Mining", "Herb Gathering") for formatting
 }
+
+-- Helper function to log events to session event log
+-- @param session: Session object
+-- @param eventType: Type of event (e.g., "loot_coin", "vendor_sale")
+-- @param message: Human-readable message
+-- @param valueCopper: Value in copper (for filtering - nil if no value)
+local function LogEvent(session, eventType, message, valueCopper)
+    if not session then
+        return
+    end
+    
+    -- Ensure eventLog exists
+    if not session.eventLog then
+        session.eventLog = {}
+    end
+    
+    -- Add event (keep last 50 events)
+    table.insert(session.eventLog, {
+        type = eventType,
+        message = message,
+        timestamp = time(),
+        valueCopper = valueCopper or 0  -- Store value for filtering
+    })
+    
+    -- Keep only last 50 events
+    if #session.eventLog > 50 then
+        table.remove(session.eventLog, 1)
+    end
+    
+    -- Debug: Log event addition
+    if GoldPH_DB and GoldPH_DB.debug and GoldPH_DB.debug.verbose then
+        print(string.format("[GoldPH] Event logged: [%s] %s (value: %d copper, total events: %d)", eventType, message, valueCopper or 0, #session.eventLog))
+    end
+end
 
 -- Initialize event system
 function GoldPH_Events:Initialize(frame)
@@ -67,6 +107,7 @@ function GoldPH_Events:Initialize(frame)
     frame:RegisterEvent("TAXIMAP_CLOSED") -- Phase 5
     frame:RegisterEvent("QUEST_TURNED_IN") -- Phase 5
     frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED") -- Phase 6 (pickpocket detection)
+    frame:RegisterEvent("UNIT_SPELLCAST_SENT") -- Phase 7 (gathering node detection)
 
     -- Note: We do NOT set OnEvent handler here - init.lua maintains control
     -- and will route events to us via GoldPH_Events:OnEvent()
@@ -109,6 +150,8 @@ function GoldPH_Events:OnEvent(event, ...)
         self:OnQuestTurnedIn(...)
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         self:OnUnitSpellcastSucceeded(...)
+    elseif event == "UNIT_SPELLCAST_SENT" then
+        self:OnUnitSpellcastSent(...)
     end
 end
 
@@ -129,6 +172,21 @@ function GoldPH_Events:OnLootedCoin(message)
     if copper and copper > 0 then
         -- Post double-entry: Dr Assets:Cash, Cr Income:LootedCoin
         GoldPH_Ledger:Post(session, "Assets:Cash", "Income:LootedCoin", copper)
+        
+        -- Log event
+        local currentTime = GetTime()
+        local isPickpocket = (currentTime <= state.pickpocketActiveUntil)
+        local isFromLockbox = (currentTime <= state.openingLockboxUntil)
+        
+        local eventMsg
+        if isFromLockbox then
+            eventMsg = string.format("Looted %s from lockbox", GoldPH_Ledger:FormatMoneyShort(copper))
+        elseif isPickpocket then
+            eventMsg = string.format("Pickpocketed %s", GoldPH_Ledger:FormatMoneyShort(copper))
+        else
+            eventMsg = string.format("Looted %s", GoldPH_Ledger:FormatMoneyShort(copper))
+        end
+        LogEvent(session, "loot_coin", eventMsg, copper)
 
         -- Phase 6: Pickpocket and lockbox attribution (reporting only, no double-post)
         -- INVARIANT: Only ONE Post to Assets:Cash per looted coin (above).
@@ -312,6 +370,29 @@ function GoldPH_Events:OnLootedItem(message)
 
     -- Add to items aggregate
     GoldPH_SessionManager:AddItem(session, itemID, itemName, quality, bucket, count, expectedEach)
+    
+    -- Log event
+    local currentTime = GetTime()
+    local isPickpocket = (currentTime <= state.pickpocketActiveUntil)
+    local isFromLockbox = (currentTime <= state.openingLockboxUntil)
+    
+    local eventMsg
+    local eventValue = expectedTotal  -- Value for filtering
+    if bucket == "container_lockbox" then
+        if isPickpocket then
+            eventMsg = string.format("Pickpocketed lockbox: %s x%d", itemName, count)
+        else
+            eventMsg = string.format("Looted lockbox: %s x%d", itemName, count)
+        end
+        eventValue = 0  -- Lockboxes have no value until opened
+    elseif isFromLockbox then
+        eventMsg = string.format("Looted from lockbox: %s x%d (%s)", itemName, count, GoldPH_Ledger:FormatMoneyShort(expectedTotal))
+    elseif isPickpocket then
+        eventMsg = string.format("Pickpocketed: %s x%d (%s)", itemName, count, GoldPH_Ledger:FormatMoneyShort(expectedTotal))
+    else
+        eventMsg = string.format("Looted: %s x%d (%s)", itemName, count, GoldPH_Ledger:FormatMoneyShort(expectedTotal))
+    end
+    LogEvent(session, "loot_item", eventMsg, eventValue)
 
     -- Phase 6: Pickpocket and lockbox attribution (reporting only, no double-post)
     if isPickpocket then
@@ -566,6 +647,9 @@ function GoldPH_Events:OnQuestTurnedIn(questID, xpReward, moneyReward)
 
     -- Post double-entry: Dr Assets:Cash, Cr Income:Quest
     GoldPH_Ledger:Post(session, "Assets:Cash", "Income:Quest", moneyReward)
+    
+    -- Log event
+    LogEvent(session, "quest", string.format("Quest reward: %s", GoldPH_Ledger:FormatMoneyShort(moneyReward)), moneyReward)
 
     if GoldPH_DB.debug.verbose then
         print(string.format("[GoldPH] Quest reward: %s (Quest ID: %d)", 
@@ -579,6 +663,55 @@ function GoldPH_Events:OnQuestTurnedIn(questID, xpReward, moneyReward)
 
     -- Update HUD
     GoldPH_HUD:Update()
+end
+
+--------------------------------------------------
+-- Phase 7: Gathering Node Detection
+--------------------------------------------------
+
+-- Gather spell IDs for detection
+local GATHER_SPELL_IDS = {
+    [2575] = true,  -- Mining (some versions)
+    [10248] = true, -- Mining (WoW Classic Anniversary)
+    [2366] = true,  -- Herb Gathering
+    [8613] = true,  -- Skinning
+}
+
+-- Handle UNIT_SPELLCAST_SENT event (for gathering node detection)
+-- @param unit: Unit that cast the spell (should be "player")
+-- @param target: Target name (node name for gathering)
+-- @param castGUID: Cast GUID
+-- @param spellID: Spell ID
+function GoldPH_Events:OnUnitSpellcastSent(unit, target, castGUID, spellID)
+    -- Debug: Log all player spell casts when verbose is on
+    if GoldPH_DB.debug.verbose and unit == "player" then
+        local spellName = GetSpellInfo(spellID) or "Unknown"
+        print(string.format("[GoldPH] UNIT_SPELLCAST_SENT: %s (ID: %d) on target: %s", spellName, spellID, tostring(target)))
+    end
+
+    -- Only process player spells
+    if unit ~= "player" then
+        return
+    end
+
+    -- Check if this is a gathering spell
+    if not GATHER_SPELL_IDS[spellID] then
+        if GoldPH_DB.debug.verbose then
+            print(string.format("[GoldPH] Spell ID %d is not in GATHER_SPELL_IDS (known: 2575/10248=Mining, 2366=Herb, 8613=Skinning)", spellID))
+        end
+        return
+    end
+
+    -- Store gathering context for success correlation
+    local spellName = GetSpellInfo(spellID) or "Unknown"
+    state.lastGatherTarget = target or "Unknown"
+    state.lastGatherTime = GetTime()
+    state.lastGatherSpellID = spellID
+    state.lastGatherSpellName = spellName
+
+    if GoldPH_DB.debug.verbose then
+        print(string.format("[GoldPH] Gathering cast sent: %s on %s (spellID: %d)", spellName, state.lastGatherTarget, spellID))
+    end
 end
 
 --------------------------------------------------
@@ -609,6 +742,130 @@ function GoldPH_Events:OnUnitSpellcastSucceeded(unitTarget, castGUID, spellID)
 
         if GoldPH_DB.debug.verbose then
             print(string.format("[GoldPH] Pick Pocket detected, attribution window: %.1f seconds", 2.0))
+        end
+    end
+
+    -- Debug: Log all player spell successes when verbose is on
+    if GoldPH_DB.debug.verbose and unitTarget == "player" then
+        local spellName = GetSpellInfo(spellID) or "Unknown"
+        print(string.format("[GoldPH] UNIT_SPELLCAST_SUCCEEDED: %s (ID: %d)", spellName, spellID))
+    end
+
+    -- Phase 7: Check if this is a gathering spell
+    if GATHER_SPELL_IDS[spellID] then
+        local spellName = GetSpellInfo(spellID) or "Unknown"
+        local currentTime = GetTime()
+        
+        if GoldPH_DB.debug.verbose then
+            print(string.format("[GoldPH] Gathering spell detected in SUCCEEDED: %s (ID: %d)", spellName, spellID))
+            print(string.format("[GoldPH] State check: lastGatherTarget=%s, lastGatherTime=%.2f, currentTime=%.2f, diff=%.2f",
+                tostring(state.lastGatherTarget), state.lastGatherTime or 0, currentTime, currentTime - (state.lastGatherTime or 0)))
+        end
+        
+        -- Get active session first
+        local session = GoldPH_SessionManager:GetActiveSession()
+        if not session then
+            if GoldPH_DB.debug.verbose then
+                print(string.format("[GoldPH] Gathering spell succeeded but no active session (spell: %s, ID: %d)", spellName, spellID))
+            end
+            return
+        end
+
+        -- Verify we have a recent gather cast sent
+        if state.lastGatherTarget and state.lastGatherTime and (currentTime - state.lastGatherTime) <= 5 then
+            -- Optional: verify spell ID matches (for stricter correlation)
+            if state.lastGatherSpellID and state.lastGatherSpellID ~= spellID then
+                -- Spell ID mismatch, clear state and return
+                if GoldPH_DB.debug.verbose then
+                    print(string.format("[GoldPH] Gathering spell ID mismatch: expected %d, got %d", state.lastGatherSpellID, spellID))
+                end
+                state.lastGatherTarget = nil
+                state.lastGatherTime = 0
+                state.lastGatherSpellID = nil
+                state.lastGatherSpellName = nil
+                return
+            end
+
+            -- Ensure gathering structure exists
+            if not session.gathering then
+                session.gathering = {
+                    totalNodes = 0,
+                    nodesByType = {},
+                }
+            end
+            if not session.gathering.nodesByType then
+                session.gathering.nodesByType = {}
+            end
+
+            -- Increment total nodes
+            session.gathering.totalNodes = (session.gathering.totalNodes or 0) + 1
+
+            -- Increment nodes by type - format as "Profession: NodeName"
+            local targetName = state.lastGatherTarget or "Unknown"
+            local professionName = state.lastGatherSpellName or spellName
+            -- Normalize profession name (e.g., "Herb Gathering" -> "Herbing", "Mining" -> "Mining")
+            if professionName == "Herb Gathering" then
+                professionName = "Herbing"
+            elseif professionName == "Mining" then
+                professionName = "Mining"
+            elseif professionName == "Skinning" then
+                professionName = "Skinning"
+            end
+            local nodeName = professionName .. ": " .. targetName
+            session.gathering.nodesByType[nodeName] = (session.gathering.nodesByType[nodeName] or 0) + 1
+            
+            -- Log event (gathering has no direct value, but items looted from it will)
+            LogEvent(session, "gathering", string.format("Gathered: %s", nodeName), 0)
+
+            if GoldPH_DB.debug.verbose then
+                print(string.format("[GoldPH] Gathering succeeded: %s (total: %d)", nodeName, session.gathering.totalNodes))
+            end
+
+            -- Clear state
+            state.lastGatherTarget = nil
+            state.lastGatherTime = 0
+            state.lastGatherSpellID = nil
+            state.lastGatherSpellName = nil
+        else
+            -- No recent SENT event - might be a direct cast or SENT event was missed
+            -- Fallback: still count it but use spell name as node type
+            if GoldPH_DB.debug.verbose then
+                print(string.format("[GoldPH] Gathering succeeded but no recent SENT event (spell: %s, ID: %d) - using fallback", spellName, spellID))
+            end
+            
+            -- Ensure gathering structure exists
+            if not session.gathering then
+                session.gathering = {
+                    totalNodes = 0,
+                    nodesByType = {},
+                }
+            end
+            if not session.gathering.nodesByType then
+                session.gathering.nodesByType = {}
+            end
+
+            -- Increment total nodes
+            session.gathering.totalNodes = (session.gathering.totalNodes or 0) + 1
+
+            -- Use spell name as fallback node type - format as "Profession: Unknown"
+            local professionName = spellName
+            -- Normalize profession name
+            if professionName == "Herb Gathering" then
+                professionName = "Herbing"
+            elseif professionName == "Mining" then
+                professionName = "Mining"
+            elseif professionName == "Skinning" then
+                professionName = "Skinning"
+            end
+            local nodeName = professionName .. ": Unknown"
+            session.gathering.nodesByType[nodeName] = (session.gathering.nodesByType[nodeName] or 0) + 1
+            
+            -- Log event (gathering has no direct value, but items looted from it will)
+            LogEvent(session, "gathering", string.format("Gathered: %s", nodeName), 0)
+
+            if GoldPH_DB.debug.verbose then
+                print(string.format("[GoldPH] Gathering counted (fallback): %s (total: %d)", nodeName, session.gathering.totalNodes))
+            end
         end
     end
 end
@@ -692,6 +949,9 @@ function GoldPH_Events:RecordTaxiCost(session, cost, source)
 
     -- Post double-entry: Dr Expense:Travel, Cr Assets:Cash
     GoldPH_Ledger:Post(session, "Expense:Travel", "Assets:Cash", cost)
+    
+    -- Log event
+    LogEvent(session, "travel", string.format("Flight cost: %s", GoldPH_Ledger:FormatMoneyShort(cost)))
 
     if GoldPH_DB.debug.verbose then
         print(string.format("[GoldPH] Flight cost recorded (%s): %s", source, GoldPH_Ledger:FormatMoney(cost)))
@@ -734,6 +994,9 @@ function GoldPH_Events:OnRepairAll(guildBankRepair)
 
         -- Post expense: Cr Assets:Cash (decrease), Dr Expense:Repairs
         GoldPH_Ledger:Post(session, "Expense:Repairs", "Assets:Cash", repairCost)
+        
+        -- Log event (negative value for expenses)
+        LogEvent(session, "repair", string.format("Repaired all items: %s", GoldPH_Ledger:FormatMoneyShort(repairCost)), -repairCost)
 
         -- Debug logging
         if GoldPH_DB.debug.verbose then
@@ -1061,6 +1324,9 @@ end
 function GoldPH_Events:ProcessVendorSale(session, itemID, itemName, count, vendorProceeds, bucket)
     -- Post cash proceeds: Dr Assets:Cash, Cr Income:VendorSales
     GoldPH_Ledger:Post(session, "Assets:Cash", "Income:VendorSales", vendorProceeds)
+    
+    -- Log event
+    LogEvent(session, "vendor_sale", string.format("Sold: %s x%d for %s", itemName, count, GoldPH_Ledger:FormatMoneyShort(vendorProceeds)), vendorProceeds)
 
     -- Consume FIFO lots to get held expected value by bucket
     local bucketValues = GoldPH_Holdings:ConsumeFIFO(session, itemID, count)

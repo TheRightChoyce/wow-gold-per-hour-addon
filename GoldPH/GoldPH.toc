@@ -2,7 +2,7 @@
 ## Title: GoldPH
 ## Notes: Session-based gold-per-hour tracking with double-ledger accounting. Features minimize/maximize HUD, real-time metrics, and conservative item valuation (WoW Classic Anniversary)
 ## Author: Claude Code
-## Version: 0.7.0
+## Version: 0.7.9
 ## SavedVariablesPerCharacter: GoldPH_DB
 
 # Core modules (load order matters)
@@ -14,6 +14,7 @@ SessionManager.lua
 Events.lua
 Debug.lua
 UI_HUD.lua
+UI_Sessions.lua
 
 # Entry point (must be last)
 init.lua

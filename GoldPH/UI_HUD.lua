@@ -28,12 +28,60 @@ local VALUE_X = FRAME_WIDTH - PADDING  -- Right edge for right-aligned values
 local ROW_HEIGHT = 14
 local SECTION_GAP = 4
 
+-- Color helper function (for FontStrings)
+local function SetValueColor(valueFontString, amount, isIncome, isExpense, isNet)
+    if isExpense and amount < 0 then
+        valueFontString:SetTextColor(1, 0.3, 0.3)  -- Red for expenses
+    elseif isIncome and amount > 0 then
+        valueFontString:SetTextColor(0.3, 1, 0.3)  -- Green for income
+    elseif isNet then
+        valueFontString:SetTextColor(1, 0.84, 0)  -- Gold/yellow for net/gold
+    else
+        valueFontString:SetTextColor(1, 1, 1)  -- White default
+    end
+end
+
+-- Get color code string for text (for use in formatted strings)
+function GoldPH_HUD:GetValueColorCode(amount, isIncome, isExpense, isNet)
+    if isExpense and amount < 0 then
+        return "|cffFF4D4D"  -- Red for expenses (1, 0.3, 0.3) -> FF4D4D
+    elseif isIncome and amount > 0 then
+        return "|cff4DFF4D"  -- Green for income (0.3, 1, 0.3) -> 4DFF4D
+    elseif isNet then
+        return "|cffFFD700"  -- Gold/yellow for net/gold (1, 0.84, 0) -> FFD700
+    else
+        return "|r"  -- White default (reset)
+    end
+end
+
+-- Tooltip helper function
+local function SetupTooltip(frame, tooltipText)
+    frame:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(tooltipText, nil, nil, nil, nil, true)
+        GameTooltip:Show()
+    end)
+    frame:SetScript("OnLeave", function(self)
+        GameTooltip:Hide()
+    end)
+end
+
 -- Initialize HUD
 function GoldPH_HUD:Initialize()
     -- Create main frame with BackdropTemplate for border support
     hudFrame = CreateFrame("Frame", "GoldPH_HUD_Frame", UIParent, "BackdropTemplate")
     hudFrame:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
-    hudFrame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -50, -200)
+    
+    -- Restore saved position or use default
+    if GoldPH_DB.settings.hudPoint then
+        hudFrame:SetPoint(GoldPH_DB.settings.hudPoint, UIParent, GoldPH_DB.settings.hudRelativePoint, 
+                         GoldPH_DB.settings.hudXOfs or 0, GoldPH_DB.settings.hudYOfs or 0)
+    else
+        hudFrame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -50, -200)
+    end
+    
+    -- Apply saved scale or use default
+    hudFrame:SetScale(GoldPH_DB.settings.hudScale or 1.0)
 
     -- Apply WoW-themed backdrop (matches standard UI elements)
     hudFrame:SetBackdrop({
@@ -56,6 +104,12 @@ function GoldPH_HUD:Initialize()
     end)
     hudFrame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
+        -- Save position to settings
+        local point, relativeTo, relativePoint, xOfs, yOfs = self:GetPoint()
+        GoldPH_DB.settings.hudPoint = point
+        GoldPH_DB.settings.hudRelativePoint = relativePoint
+        GoldPH_DB.settings.hudXOfs = xOfs
+        GoldPH_DB.settings.hudYOfs = yOfs
     end)
 
     -- Minimize/Maximize button (stock WoW +/- buttons)
@@ -94,6 +148,7 @@ function GoldPH_HUD:Initialize()
     headerGold:SetJustifyH("RIGHT")
     headerGold:SetText("0g")
     hudFrame.headerGold = headerGold
+    SetupTooltip(headerContainer, "Total economic value (gold + inventory)")
 
     -- Separator with spaces on both sides
     local headerSep = headerContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -109,6 +164,7 @@ function GoldPH_HUD:Initialize()
     headerTimer:SetTextColor(0.8, 0.8, 0.8)  -- Lighter gray for timer
     headerTimer:SetText("0m")
     hudFrame.headerTimer = headerTimer
+    -- Tooltip already set on headerContainer above
 
     --------------------------------------------------
     -- Expanded display elements (shown only when expanded)
@@ -147,6 +203,8 @@ function GoldPH_HUD:Initialize()
     local goldLabel, goldValue = CreateRow("Gold", yPos, false)
     hudFrame.goldLabel = goldLabel
     hudFrame.goldValue = goldValue
+    SetupTooltip(goldLabel, "Current gold balance (gold/silver/copper) in your bags")
+    SetupTooltip(goldValue, "Current gold balance (gold/silver/copper) in your bags")
     yPos = yPos - ROW_HEIGHT
 
     -- Gold per hour (indented)
@@ -163,24 +221,32 @@ function GoldPH_HUD:Initialize()
     goldHrValue:SetText("0g")
     goldHrValue:SetTextColor(1, 0.9, 0.5)  -- Lighter yellow instead of gray
     hudFrame.goldHrValue = goldHrValue
+    SetupTooltip(goldHrLabel, "Gold earned per hour based on session duration")
+    SetupTooltip(goldHrValue, "Gold earned per hour based on session duration")
     yPos = yPos - ROW_HEIGHT + 2
 
     -- Inventory row
     local invLabel, invValue = CreateRow("Inventory", yPos, false)
     hudFrame.invLabel = invLabel
     hudFrame.invValue = invValue
+    SetupTooltip(invLabel, "Expected vendor/AH value of vendor trash and rare items (excluding gathering materials)")
+    SetupTooltip(invValue, "Expected vendor/AH value of vendor trash and rare items (excluding gathering materials)")
     yPos = yPos - ROW_HEIGHT
 
     -- Gathering row
     local gathLabel, gathValue = CreateRow("Gathering", yPos, false)
     hudFrame.gathLabel = gathLabel
     hudFrame.gathValue = gathValue
+    SetupTooltip(gathLabel, "Expected value of gathering materials (ore, herbs, leather, cloth)")
+    SetupTooltip(gathValue, "Expected value of gathering materials (ore, herbs, leather, cloth)")
     yPos = yPos - ROW_HEIGHT
 
     -- Expenses row
     local expLabel, expValue = CreateRow("Expenses", yPos, false)
     hudFrame.expLabel = expLabel
     hudFrame.expValue = expValue
+    SetupTooltip(expLabel, "Total expenses: repairs, vendor purchases, and travel costs")
+    SetupTooltip(expValue, "Total expenses: repairs, vendor purchases, and travel costs")
     yPos = yPos - ROW_HEIGHT
 
     -- Separator line before total (WoW UI style horizontal rule)
@@ -198,6 +264,8 @@ function GoldPH_HUD:Initialize()
     local totalLabel, totalValue = CreateRow("Total", yPos, true)
     hudFrame.totalLabel = totalLabel
     hudFrame.totalValue = totalValue
+    SetupTooltip(totalLabel, "Total economic value: gold + all inventory (expected liquidation value)")
+    SetupTooltip(totalValue, "Total economic value: gold + all inventory (expected liquidation value)")
     yPos = yPos - ROW_HEIGHT - 2
 
     -- Total per hour (indented)
@@ -214,6 +282,8 @@ function GoldPH_HUD:Initialize()
     totalHrValue:SetText("0g")
     totalHrValue:SetTextColor(1, 0.9, 0.5)  -- Lighter yellow instead of gray
     hudFrame.totalHrValue = totalHrValue
+    SetupTooltip(totalHrLabel, "Total economic value per hour")
+    SetupTooltip(totalHrValue, "Total economic value per hour")
 
     -- Update loop
     hudFrame:SetScript("OnUpdate", function(self, elapsed)
@@ -229,7 +299,7 @@ function GoldPH_HUD:Initialize()
 end
 
 -- Format money for accounting display (uses parentheses for negatives)
-local function FormatAccounting(copper)
+function GoldPH_HUD:FormatAccounting(copper)
     if not copper then
         return "0g"
     end
@@ -245,7 +315,7 @@ local function FormatAccounting(copper)
 end
 
 -- Format money short for accounting display (uses parentheses for negatives)
-local function FormatAccountingShort(copper)
+function GoldPH_HUD:FormatAccountingShort(copper)
     if not copper then
         return "0g"
     end
@@ -258,6 +328,15 @@ local function FormatAccountingShort(copper)
     else
         return formatted
     end
+end
+
+-- Local wrappers for internal use (backward compatibility)
+local function FormatAccounting(copper)
+    return GoldPH_HUD:FormatAccounting(copper)
+end
+
+local function FormatAccountingShort(copper)
+    return GoldPH_HUD:FormatAccountingShort(copper)
 end
 
 -- Update HUD display
@@ -283,31 +362,54 @@ function GoldPH_HUD:Update()
 
     -- Header line (gold + time) - update separately for different colors
     hudFrame.headerGold:SetText(FormatAccounting(metrics.totalValue))
+    SetValueColor(hudFrame.headerGold, metrics.totalValue, false, false, true)
     hudFrame.headerTimer:SetText(GoldPH_SessionManager:FormatDuration(metrics.durationSec))
 
-    -- Gold (cash balance)
+    -- Gold balance
     hudFrame.goldValue:SetText(FormatAccounting(metrics.cash))
+    SetValueColor(hudFrame.goldValue, metrics.cash, false, false, true)
     hudFrame.goldHrValue:SetText(FormatAccountingShort(metrics.cashPerHour))
+    SetValueColor(hudFrame.goldHrValue, metrics.cashPerHour, false, false, true)
 
     -- Inventory (vendor trash + rare items, excluding gathering)
     local nonGatheringInventory = metrics.invVendorTrash + metrics.invRareMulti
     hudFrame.invValue:SetText(FormatAccounting(nonGatheringInventory))
+    -- Keep white (neutral)
 
     -- Gathering (ore, herbs, leather, cloth)
     hudFrame.gathValue:SetText(FormatAccounting(metrics.invGathering))
+    -- Keep white (neutral)
+    -- Update gathering tooltip with node counts if available
+    if metrics.gatheringTotalNodes and metrics.gatheringTotalNodes > 0 then
+        local tooltipText = "Expected value of gathering materials (ore, herbs, leather, cloth)\nTotal nodes: " .. metrics.gatheringTotalNodes
+        if metrics.gatheringNodesPerHour and metrics.gatheringNodesPerHour > 0 then
+            tooltipText = tooltipText .. "\nNodes/hour: " .. metrics.gatheringNodesPerHour
+        end
+        -- Update tooltip dynamically (overrides the one set in Initialize)
+        hudFrame.gathValue:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(tooltipText, nil, nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+    else
+        -- Restore default tooltip if no nodes
+        SetupTooltip(hudFrame.gathValue, "Expected value of gathering materials (ore, herbs, leather, cloth)")
+    end
 
     -- Expenses (shown with parentheses since it's a deduction)
     if metrics.expenses > 0 then
         hudFrame.expValue:SetText("(" .. GoldPH_Ledger:FormatMoney(metrics.expenses) .. ")")
-        hudFrame.expValue:SetTextColor(1, 0.5, 0.5)  -- Light red for expenses
+        SetValueColor(hudFrame.expValue, -metrics.expenses, false, true, false)  -- Red for expenses
     else
         hudFrame.expValue:SetText("0g")
         hudFrame.expValue:SetTextColor(1, 1, 1)
     end
 
-    -- Total value (cash + all inventory)
+    -- Total value (gold + all inventory)
     hudFrame.totalValue:SetText(FormatAccounting(metrics.totalValue))
+    SetValueColor(hudFrame.totalValue, metrics.totalValue, false, false, true)
     hudFrame.totalHrValue:SetText(FormatAccountingShort(metrics.totalPerHour))
+    SetValueColor(hudFrame.totalHrValue, metrics.totalPerHour, false, false, true)
 end
 
 -- Show HUD
@@ -394,21 +496,55 @@ function GoldPH_HUD:ApplyMinimizeState()
     end
 
     -- Adjust frame height while maintaining top position
-    -- Store current top position before changing height
-    local point, relativeTo, relativePoint, xOfs, yOfs = hudFrame:GetPoint()
+    -- Always use current frame position (not saved) to avoid stale values
+    local topY = hudFrame:GetTop()
+    local currentPoint, _, currentRelativePoint, currentXOfs, currentYOfs = hudFrame:GetPoint()
     
+    -- Normalize anchor point to TOP-based (preserve horizontal component)
+    local topAnchor = "TOP"
+    if currentPoint == "TOPLEFT" or currentPoint == "LEFT" then
+        topAnchor = "TOPLEFT"
+    elseif currentPoint == "TOPRIGHT" or currentPoint == "RIGHT" then
+        topAnchor = "TOPRIGHT"
+    end
+    
+    -- Normalize relative point similarly
+    local relativeTopAnchor = "TOP"
+    if currentRelativePoint == "TOPLEFT" or currentRelativePoint == "LEFT" then
+        relativeTopAnchor = "TOPLEFT"
+    elseif currentRelativePoint == "TOPRIGHT" or currentRelativePoint == "RIGHT" then
+        relativeTopAnchor = "TOPRIGHT"
+    end
+    
+    -- Change height
     if isMinimized then
         hudFrame:SetHeight(FRAME_HEIGHT_MINI)
     else
         hudFrame:SetHeight(FRAME_HEIGHT)
     end
     
-    -- Restore top position to prevent jumping
+    -- Restore position: maintain top Y and preserve horizontal anchor
     hudFrame:ClearAllPoints()
-    hudFrame:SetPoint(point, relativeTo, relativePoint, xOfs, yOfs)
+    -- Calculate Y offset to maintain the same top Y position
+    local relativeTopY = UIParent:GetTop()
+    local yOfs = topY - relativeTopY
+    hudFrame:SetPoint(topAnchor, UIParent, relativeTopAnchor, currentXOfs, yOfs)
+    
+    -- Update saved position with new Y offset but preserve anchor point
+    GoldPH_DB.settings.hudPoint = topAnchor
+    GoldPH_DB.settings.hudRelativePoint = relativeTopAnchor
+    GoldPH_DB.settings.hudXOfs = currentXOfs
+    GoldPH_DB.settings.hudYOfs = yOfs
 
     -- Update display
     self:Update()
+end
+
+-- Set HUD scale
+function GoldPH_HUD:SetScale(scale)
+    if hudFrame then
+        hudFrame:SetScale(scale)
+    end
 end
 
 -- Export module

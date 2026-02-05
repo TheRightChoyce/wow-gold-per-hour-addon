@@ -29,7 +29,37 @@
 
 ---
 
-### 1. Flight Path Expense Tracking
+### 1. Scrolls Not Using AH Value
+**Issue**: Scrolls (e.g., Scroll of Spirit III) are not picking up AH value and defaulting to vendor value only.
+
+**Current Behavior**:
+- Scrolls are classified correctly but PriceSources is not finding AH value
+- Expected value falls back to vendor price (very low)
+- Should use AH price for valuation (with friction multiplier)
+
+**Expected Behavior**:
+- Scrolls should query AH price sources (TSM, Custom AH) if available
+- Use AH price for valuation when available
+- Fall back to vendor price only if no AH data exists
+
+**Investigation Needed**:
+- Check if scrolls are being queried correctly in PriceSources.lua
+- Verify item classification in Valuation.lua
+- Check if TSM API includes scrolls in its price data
+- Verify item ID lookup is working for scrolls
+
+**Files to Investigate**:
+- `PriceSources.lua` - Check AH price lookup logic
+- `Valuation.lua` - Verify scroll classification
+- `Debug.lua` - Add debug output for scroll price resolution
+
+**Priority**: MEDIUM (affects scroll valuation accuracy)
+
+**Status**: TODO - Needs investigation
+
+---
+
+### 2. Flight Path Expense Tracking
 **Issue**: Taking a flight path doesn't add an expense to the session.
 
 **Current Behavior**:

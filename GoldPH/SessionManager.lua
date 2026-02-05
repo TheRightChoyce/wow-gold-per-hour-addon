@@ -49,6 +49,9 @@ function GoldPH_SessionManager:StartSession()
             totalNodes = 0,
             nodesByType = {},
         },
+        
+        -- Phase 7: Event log for activity display
+        eventLog = {},  -- Array of {type, message, timestamp}
     }
 
     -- Initialize ledger
@@ -192,6 +195,19 @@ function GoldPH_SessionManager:GetMetrics(session)
     local incomePickpocketFromLockboxCoin = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:FromLockbox:Coin")
     local incomePickpocketFromLockboxItems = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:FromLockbox:Items")
 
+    -- Phase 7: Gathering metrics
+    local gatheringTotalNodes = 0
+    local gatheringNodesPerHour = 0
+    local gatheringNodesByType = {}
+
+    if session.gathering then
+        gatheringTotalNodes = session.gathering.totalNodes or 0
+        gatheringNodesByType = session.gathering.nodesByType or {}
+        if durationHours > 0 and gatheringTotalNodes > 0 then
+            gatheringNodesPerHour = math.floor(gatheringTotalNodes / durationHours)
+        end
+    end
+
     return {
         durationSec = durationSec,
         durationHours = durationHours,
@@ -229,6 +245,11 @@ function GoldPH_SessionManager:GetMetrics(session)
         incomePickpocketItems = incomePickpocketItems,
         incomePickpocketFromLockboxCoin = incomePickpocketFromLockboxCoin,
         incomePickpocketFromLockboxItems = incomePickpocketFromLockboxItems,
+
+        -- Phase 7: Gathering metrics
+        gatheringTotalNodes = gatheringTotalNodes,
+        gatheringNodesPerHour = gatheringNodesPerHour,
+        gatheringNodesByType = gatheringNodesByType,
     }
 end
 
