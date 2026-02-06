@@ -49,10 +49,33 @@ function GoldPH_SessionManager:StartSession()
             totalNodes = 0,
             nodesByType = {},
         },
+
+        -- Phase 9: XP/Rep/Honor metrics
+        metrics = {
+            xp = { gained = 0, enabled = false },
+            rep = { gained = 0, enabled = false, byFaction = {} },
+            honor = { gained = 0, enabled = false, kills = 0 },
+        },
+
+        -- Phase 9: Snapshots for delta computation
+        snapshots = {
+            xp = { cur = 0, max = 0 },
+            rep = { byFactionID = {} },
+        },
     }
 
     -- Initialize ledger
     GoldPH_Ledger:InitializeLedger(session)
+
+    -- Initialize XP tracking (if not max level)
+    -- GetMaxPlayerLevel() or fallback to 60 for Classic
+    local maxLevel = GetMaxPlayerLevel and GetMaxPlayerLevel() or 60
+    if UnitLevel("player") < maxLevel then
+        session.snapshots.xp.cur = UnitXP("player")
+        session.snapshots.xp.max = UnitXPMax("player")
+    end
+
+    -- Initialize reputation tracking (via Events.lua after session created)
 
     -- Set as active session
     GoldPH_DB.activeSession = session
@@ -203,6 +226,58 @@ function GoldPH_SessionManager:GetMetrics(session)
     local incomePickpocketFromLockboxCoin = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:FromLockbox:Coin")
     local incomePickpocketFromLockboxItems = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:FromLockbox:Items")
 
+    -- Phase 9: Compute XP metrics
+    local xpGained = 0
+    local xpPerHour = 0
+    local xpEnabled = false
+    if session.metrics and session.metrics.xp then
+        xpGained = session.metrics.xp.gained or 0
+        xpEnabled = session.metrics.xp.enabled or false
+        if durationHours > 0 and xpGained > 0 then
+            xpPerHour = math.floor(xpGained / durationHours)
+        end
+    end
+
+    -- Phase 9: Compute Rep metrics
+    local repGained = 0
+    local repPerHour = 0
+    local repEnabled = false
+    local repTopFactions = {}
+    if session.metrics and session.metrics.rep then
+        repGained = session.metrics.rep.gained or 0
+        repEnabled = session.metrics.rep.enabled or false
+        if durationHours > 0 and repGained > 0 then
+            repPerHour = math.floor(repGained / durationHours)
+        end
+
+        -- Extract top 3 factions by gain
+        if session.metrics.rep.byFaction then
+            local allFactions = {}
+            for factionName, gain in pairs(session.metrics.rep.byFaction) do
+                table.insert(allFactions, {name = factionName, gain = gain})
+            end
+            table.sort(allFactions, function(a, b) return a.gain > b.gain end)
+            -- Take top 3
+            for i = 1, math.min(3, #allFactions) do
+                table.insert(repTopFactions, allFactions[i])
+            end
+        end
+    end
+
+    -- Phase 9: Compute Honor metrics
+    local honorGained = 0
+    local honorPerHour = 0
+    local honorEnabled = false
+    local honorKills = 0
+    if session.metrics and session.metrics.honor then
+        honorGained = session.metrics.honor.gained or 0
+        honorEnabled = session.metrics.honor.enabled or false
+        honorKills = session.metrics.honor.kills or 0
+        if durationHours > 0 and honorGained > 0 then
+            honorPerHour = math.floor(honorGained / durationHours)
+        end
+    end
+
     return {
         durationSec = durationSec,
         durationHours = durationHours,
@@ -240,6 +315,19 @@ function GoldPH_SessionManager:GetMetrics(session)
         incomePickpocketItems = incomePickpocketItems,
         incomePickpocketFromLockboxCoin = incomePickpocketFromLockboxCoin,
         incomePickpocketFromLockboxItems = incomePickpocketFromLockboxItems,
+
+        -- Phase 9: XP/Rep/Honor metrics
+        xpGained = xpGained,
+        xpPerHour = xpPerHour,
+        xpEnabled = xpEnabled,
+        repGained = repGained,
+        repPerHour = repPerHour,
+        repEnabled = repEnabled,
+        repTopFactions = repTopFactions,
+        honorGained = honorGained,
+        honorPerHour = honorPerHour,
+        honorEnabled = honorEnabled,
+        honorKills = honorKills,
     }
 end
 

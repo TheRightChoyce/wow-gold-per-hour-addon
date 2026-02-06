@@ -52,6 +52,11 @@ local state = {
     openingLockboxItemID = nil,
     -- Phase 6: BAG_UPDATE fallback for lockbox opening (when UseContainerItem isn't hookable)
     lockboxBagSnapshot = nil,  -- [ "bag_slot" ] = { itemID, count } for slots with lockboxes
+
+    -- Phase 9: XP/Rep/Honor tracking
+    xpLast = nil,
+    xpMaxLast = nil,
+    repCache = {},  -- [factionID] = barValue (for delta computation)
 }
 
 -- Initialize event system
@@ -67,12 +72,26 @@ function GoldPH_Events:Initialize(frame)
     frame:RegisterEvent("TAXIMAP_CLOSED") -- Phase 5
     frame:RegisterEvent("QUEST_TURNED_IN") -- Phase 5
     frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED") -- Phase 6 (pickpocket detection)
+    frame:RegisterEvent("PLAYER_XP_UPDATE") -- Phase 9 (XP tracking)
+    frame:RegisterEvent("UPDATE_FACTION") -- Phase 9 (Reputation tracking)
+    frame:RegisterEvent("CHAT_MSG_COMBAT_HONOR_GAIN") -- Phase 9 (Honor tracking)
 
     -- Note: We do NOT set OnEvent handler here - init.lua maintains control
     -- and will route events to us via GoldPH_Events:OnEvent()
 
     -- Initialize money tracking
     state.moneyLast = GetMoney()
+
+    -- Phase 9: Initialize XP tracking (if not max level)
+    -- GetMaxPlayerLevel() or fallback to 60 for Classic
+    local maxLevel = GetMaxPlayerLevel and GetMaxPlayerLevel() or 60
+    if UnitLevel("player") < maxLevel then
+        state.xpLast = UnitXP("player")
+        state.xpMaxLast = UnitXPMax("player")
+    end
+
+    -- Phase 9: Initialize reputation cache
+    self:InitializeRepCache()
 
     -- Hook repair function (Phase 2)
     self:HookRepairFunctions()
@@ -109,6 +128,12 @@ function GoldPH_Events:OnEvent(event, ...)
         self:OnQuestTurnedIn(...)
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         self:OnUnitSpellcastSucceeded(...)
+    elseif event == "PLAYER_XP_UPDATE" then
+        self:OnPlayerXPUpdate()
+    elseif event == "UPDATE_FACTION" then
+        self:OnUpdateFaction()
+    elseif event == "CHAT_MSG_COMBAT_HONOR_GAIN" then
+        self:OnHonorGain(...)
     end
 end
 
@@ -1221,6 +1246,199 @@ function GoldPH_Events:InjectVendorSale(itemID, count)
         itemName, count, GoldPH_Ledger:FormatMoney(vendorProceeds)))
 
     return true
+end
+
+--------------------------------------------------
+-- Phase 9: XP/Rep/Honor Tracking
+--------------------------------------------------
+
+-- Initialize reputation cache (scan all factions, use factionID as stable key)
+function GoldPH_Events:InitializeRepCache()
+    state.repCache = {}
+
+    local numFactions = GetNumFactions()
+    for i = 1, numFactions do
+        local name, description, standingID, barMin, barMax, barValue, atWarWith, canToggleAtWar, isHeader, isCollapsed, hasRep, isWatched, isChild, factionID = GetFactionInfo(i)
+
+        -- Skip headers, use factionID as stable key
+        if not isHeader and factionID then
+            state.repCache[factionID] = barValue
+        end
+    end
+
+    if GoldPH_DB and GoldPH_DB.debug and GoldPH_DB.debug.verbose then
+        local count = 0
+        for _ in pairs(state.repCache) do count = count + 1 end
+        print(string.format("[GoldPH] Initialized reputation cache with %d factions", count))
+    end
+end
+
+-- Handle PLAYER_XP_UPDATE event (XP gains with rollover detection for level-ups)
+function GoldPH_Events:OnPlayerXPUpdate()
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        return
+    end
+
+    -- Skip if max level
+    local maxLevel = GetMaxPlayerLevel and GetMaxPlayerLevel() or 60
+    if UnitLevel("player") >= maxLevel then
+        return
+    end
+
+    -- Ensure metrics structure exists
+    if not session.metrics then
+        session.metrics = {
+            xp = { gained = 0, enabled = false },
+            rep = { gained = 0, enabled = false, byFaction = {} },
+            honor = { gained = 0, enabled = false, kills = 0 },
+        }
+    end
+    if not session.metrics.xp then
+        session.metrics.xp = { gained = 0, enabled = false }
+    end
+
+    local newXP = UnitXP("player")
+    local newXPMax = UnitXPMax("player")
+
+    -- First update: just store values
+    if not state.xpLast then
+        state.xpLast = newXP
+        state.xpMaxLast = newXPMax
+        session.metrics.xp.enabled = true
+        return
+    end
+
+    -- Compute delta with rollover detection
+    local delta = 0
+    if newXP >= state.xpLast then
+        -- Normal gain (no level-up)
+        delta = newXP - state.xpLast
+    else
+        -- Level-up detected (XP wrapped from high to low)
+        delta = (state.xpMaxLast - state.xpLast) + newXP
+    end
+
+    -- Update session metrics
+    session.metrics.xp.gained = session.metrics.xp.gained + delta
+    session.metrics.xp.enabled = true
+
+    -- Update runtime state
+    state.xpLast = newXP
+    state.xpMaxLast = newXPMax
+
+    if GoldPH_DB.debug.verbose then
+        print(string.format("[GoldPH] XP gained: %d (total: %d)", delta, session.metrics.xp.gained))
+    end
+
+    -- Update HUD
+    GoldPH_HUD:Update()
+end
+
+-- Handle UPDATE_FACTION event (Reputation gains)
+function GoldPH_Events:OnUpdateFaction()
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        return
+    end
+
+    -- Ensure metrics structure exists
+    if not session.metrics then
+        session.metrics = {
+            xp = { gained = 0, enabled = false },
+            rep = { gained = 0, enabled = false, byFaction = {} },
+            honor = { gained = 0, enabled = false, kills = 0 },
+        }
+    end
+    if not session.metrics.rep then
+        session.metrics.rep = { gained = 0, enabled = false, byFaction = {} }
+    end
+
+    -- Scan all factions and compute deltas
+    local numFactions = GetNumFactions()
+    local totalDelta = 0
+
+    for i = 1, numFactions do
+        local name, description, standingID, barMin, barMax, barValue, atWarWith, canToggleAtWar, isHeader, isCollapsed, hasRep, isWatched, isChild, factionID = GetFactionInfo(i)
+
+        -- Skip headers, use factionID as stable key
+        if not isHeader and factionID and name then
+            local oldValue = state.repCache[factionID] or barValue
+            local delta = barValue - oldValue
+
+            if delta > 0 then
+                -- Reputation gained
+                totalDelta = totalDelta + delta
+
+                -- Update per-faction totals
+                if not session.metrics.rep.byFaction[name] then
+                    session.metrics.rep.byFaction[name] = 0
+                end
+                session.metrics.rep.byFaction[name] = session.metrics.rep.byFaction[name] + delta
+
+                if GoldPH_DB.debug.verbose then
+                    print(string.format("[GoldPH] Rep gained: %s +%d", name, delta))
+                end
+            end
+
+            -- Update cache
+            state.repCache[factionID] = barValue
+        end
+    end
+
+    if totalDelta > 0 then
+        session.metrics.rep.gained = session.metrics.rep.gained + totalDelta
+        session.metrics.rep.enabled = true
+
+        -- Update HUD
+        GoldPH_HUD:Update()
+    end
+end
+
+-- Handle CHAT_MSG_COMBAT_HONOR_GAIN event (Honor gains)
+function GoldPH_Events:OnHonorGain(message)
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        return
+    end
+
+    -- Ensure metrics structure exists
+    if not session.metrics then
+        session.metrics = {
+            xp = { gained = 0, enabled = false },
+            rep = { gained = 0, enabled = false, byFaction = {} },
+            honor = { gained = 0, enabled = false, kills = 0 },
+        }
+    end
+    if not session.metrics.honor then
+        session.metrics.honor = { gained = 0, enabled = false, kills = 0 }
+    end
+
+    -- Parse honor amount from message
+    -- Patterns: "You have been awarded 42 honor points." or "You have gained 10 honor."
+    local amount = message:match("(%d+) honor")
+    if not amount then
+        amount = message:match("awarded (%d+) honor")
+    end
+
+    if amount then
+        amount = tonumber(amount)
+        session.metrics.honor.gained = session.metrics.honor.gained + amount
+        session.metrics.honor.enabled = true
+
+        -- Optional: detect HK with "killing blow"
+        if message:find("killing blow") then
+            session.metrics.honor.kills = session.metrics.honor.kills + 1
+        end
+
+        if GoldPH_DB.debug.verbose then
+            print(string.format("[GoldPH] Honor gained: %d (total: %d, HKs: %d)",
+                amount, session.metrics.honor.gained, session.metrics.honor.kills))
+        end
+
+        -- Update HUD
+        GoldPH_HUD:Update()
+    end
 end
 
 -- Export module

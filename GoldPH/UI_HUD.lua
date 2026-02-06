@@ -13,6 +13,7 @@ local UPDATE_INTERVAL = 1.0 -- Update every 1 second
 -- Layout constants
 local PADDING = 12
 local FRAME_WIDTH = 180
+-- Base expanded height; actual height is dynamically adjusted based on visible rows
 local FRAME_HEIGHT = 180
 -- Calculate minimized height to match visual padding:
 -- Top visual padding: PADDING (12px) - backdrop inset (4px) = 8px visual
@@ -215,6 +216,29 @@ function GoldPH_HUD:Initialize()
     totalHrValue:SetTextColor(1, 0.9, 0.5)  -- Lighter yellow instead of gray
     hudFrame.totalHrValue = totalHrValue
 
+    -- Phase 9: XP/Rep/Honor rows (only shown if enabled; grouped below all gold totals)
+    yPos = yPos - ROW_HEIGHT
+
+    local xpLabel, xpValue = CreateRow("XP/hr", yPos, false)
+    xpLabel:SetTextColor(0.6, 0.0, 1.0)   -- WoW-style purple for XP
+    xpValue:SetTextColor(0.6, 0.0, 1.0)
+    hudFrame.xpLabel = xpLabel
+    hudFrame.xpValue = xpValue
+    yPos = yPos - ROW_HEIGHT
+
+    local repLabel, repValue = CreateRow("Rep/hr", yPos, false)
+    repLabel:SetTextColor(0.0, 1.0, 0.0)  -- WoW-style green for reputation
+    repValue:SetTextColor(0.0, 1.0, 0.0)
+    hudFrame.repLabel = repLabel
+    hudFrame.repValue = repValue
+    yPos = yPos - ROW_HEIGHT
+
+    local honorLabel, honorValue = CreateRow("Honor/hr", yPos, false)
+    honorLabel:SetTextColor(1.0, 0.5, 0.0) -- WoW-style orange for honor
+    honorValue:SetTextColor(1.0, 0.5, 0.0)
+    hudFrame.honorLabel = honorLabel
+    hudFrame.honorValue = honorValue
+
     -- Update loop
     hudFrame:SetScript("OnUpdate", function(self, elapsed)
         updateTimer = updateTimer + elapsed
@@ -262,6 +286,31 @@ local function FormatAccountingShort(copper)
     end
 end
 
+-- Dynamically adjust HUD height based on the last visible row
+local function UpdateHudHeight(lastElement)
+    if not hudFrame or not lastElement or not lastElement:IsShown() then
+        return
+    end
+
+    local top = hudFrame:GetTop()
+    local bottom = lastElement:GetBottom()
+
+    if not top or not bottom then
+        return
+    end
+
+    -- Add a small padding below the last row
+    local padding = 12
+    local newHeight = (top - bottom) + padding
+
+    -- Never shrink below the base expanded height
+    if newHeight < FRAME_HEIGHT then
+        newHeight = FRAME_HEIGHT
+    end
+
+    hudFrame:SetHeight(newHeight)
+end
+
 -- Update HUD display
 function GoldPH_HUD:Update()
     if not hudFrame then
@@ -307,9 +356,60 @@ function GoldPH_HUD:Update()
         hudFrame.expValue:SetTextColor(1, 1, 1)
     end
 
+    -- Phase 9: XP/Rep/Honor rows (only shown if metrics enabled and HUD expanded)
+    local showMetricsRows = not GoldPH_DB.settings.hudMinimized
+
+    -- XP row
+    if showMetricsRows and metrics.xpEnabled and metrics.xpPerHour > 0 then
+        local xpStr = metrics.xpPerHour >= 1000 and
+            string.format("%.1fk", metrics.xpPerHour / 1000) or
+            tostring(metrics.xpPerHour)
+        hudFrame.xpValue:SetText(xpStr)
+        hudFrame.xpLabel:Show()
+        hudFrame.xpValue:Show()
+    else
+        hudFrame.xpLabel:Hide()
+        hudFrame.xpValue:Hide()
+    end
+
+    -- Rep row
+    if showMetricsRows and metrics.repEnabled and metrics.repPerHour > 0 then
+        hudFrame.repValue:SetText(tostring(metrics.repPerHour))
+        hudFrame.repLabel:Show()
+        hudFrame.repValue:Show()
+    else
+        hudFrame.repLabel:Hide()
+        hudFrame.repValue:Hide()
+    end
+
+    -- Honor row
+    if showMetricsRows and metrics.honorEnabled and metrics.honorPerHour > 0 then
+        hudFrame.honorValue:SetText(tostring(metrics.honorPerHour))
+        hudFrame.honorLabel:Show()
+        hudFrame.honorValue:Show()
+    else
+        hudFrame.honorLabel:Hide()
+        hudFrame.honorValue:Hide()
+    end
+
     -- Total value (cash + all inventory)
     hudFrame.totalValue:SetText(FormatAccounting(metrics.totalValue))
     hudFrame.totalHrValue:SetText(FormatAccountingShort(metrics.totalPerHour))
+
+    -- Adjust HUD height based on the last visible row:
+    -- default to totalHrLabel, but extend to last shown XP/Rep/Honor row if present
+    local lastElement = hudFrame.totalHrLabel
+    if showMetricsRows then
+        if hudFrame.honorLabel:IsShown() then
+            lastElement = hudFrame.honorLabel
+        elseif hudFrame.repLabel:IsShown() then
+            lastElement = hudFrame.repLabel
+        elseif hudFrame.xpLabel:IsShown() then
+            lastElement = hudFrame.xpLabel
+        end
+    end
+
+    UpdateHudHeight(lastElement)
 end
 
 -- Show HUD
@@ -383,6 +483,9 @@ function GoldPH_HUD:ApplyMinimizeState()
         hudFrame.invLabel, hudFrame.invValue,
         hudFrame.gathLabel, hudFrame.gathValue,
         hudFrame.expLabel, hudFrame.expValue,
+        hudFrame.xpLabel, hudFrame.xpValue,      -- Phase 9
+        hudFrame.repLabel, hudFrame.repValue,    -- Phase 9
+        hudFrame.honorLabel, hudFrame.honorValue,-- Phase 9
         hudFrame.totalLabel, hudFrame.totalValue,
         hudFrame.totalHrLabel, hudFrame.totalHrValue,
     }

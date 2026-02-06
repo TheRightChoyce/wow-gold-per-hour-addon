@@ -25,6 +25,9 @@ local GoldPH_Index = {
         cashPerHour = {},      -- Sorted by cash gold/hr descending
         expectedPerHour = {},  -- Sorted by expected gold/hr descending
         date = {},             -- Sorted by endedAt descending (newest first)
+        xpPerHour = {},        -- Sorted by XP/hr descending
+        repPerHour = {},       -- Sorted by Rep/hr descending
+        honorPerHour = {},     -- Sorted by Honor/hr descending
     },
 
     -- Item aggregates (across all sessions)
@@ -81,6 +84,9 @@ function GoldPH_Index:Build()
         cashPerHour = {},
         expectedPerHour = {},
         date = {},
+        xpPerHour = {},
+        repPerHour = {},
+        honorPerHour = {},
     }
     self.itemAgg = {}
     self.nodeAgg = {}
@@ -122,6 +128,20 @@ function GoldPH_Index:Build()
                 (session.pickpocket.lockboxesLooted or 0) > 0
             )
 
+            -- Phase 9: Extract XP/Rep/Honor flags and values
+            local hasXP = metrics.xpEnabled or false
+            local xpGained = metrics.xpGained or 0
+            local xpPerHour = metrics.xpPerHour or 0
+
+            local hasRep = metrics.repEnabled or false
+            local repGained = metrics.repGained or 0
+            local repPerHour = metrics.repPerHour or 0
+
+            local hasHonor = metrics.honorEnabled or false
+            local honorGained = metrics.honorGained or 0
+            local honorPerHour = metrics.honorPerHour or 0
+            local honorKills = metrics.honorKills or 0
+
             -- Get top item
             local topItemName, topItemValue = GetTopItem(session)
 
@@ -144,6 +164,18 @@ function GoldPH_Index:Build()
 
                 hasGathering = hasGathering,
                 hasPickpocket = hasPickpocket,
+
+                -- Phase 9: XP/Rep/Honor metrics
+                hasXP = hasXP,
+                xpGained = xpGained,
+                xpPerHour = xpPerHour,
+                hasRep = hasRep,
+                repGained = repGained,
+                repPerHour = repPerHour,
+                hasHonor = hasHonor,
+                honorGained = honorGained,
+                honorPerHour = honorPerHour,
+                honorKills = honorKills,
 
                 topItemName = topItemName,
                 topItemValue = topItemValue,
@@ -334,6 +366,36 @@ function GoldPH_Index:Build()
     end)
     self.sorted.date = sortedByDate
 
+    -- Phase 9: Sort by xpPerHour descending
+    local sortedByXP = {}
+    for _, sessionId in ipairs(self.sessions) do
+        table.insert(sortedByXP, sessionId)
+    end
+    table.sort(sortedByXP, function(a, b)
+        return (self.summaries[a].xpPerHour or 0) > (self.summaries[b].xpPerHour or 0)
+    end)
+    self.sorted.xpPerHour = sortedByXP
+
+    -- Phase 9: Sort by repPerHour descending
+    local sortedByRep = {}
+    for _, sessionId in ipairs(self.sessions) do
+        table.insert(sortedByRep, sessionId)
+    end
+    table.sort(sortedByRep, function(a, b)
+        return (self.summaries[a].repPerHour or 0) > (self.summaries[b].repPerHour or 0)
+    end)
+    self.sorted.repPerHour = sortedByRep
+
+    -- Phase 9: Sort by honorPerHour descending
+    local sortedByHonor = {}
+    for _, sessionId in ipairs(self.sessions) do
+        table.insert(sortedByHonor, sessionId)
+    end
+    table.sort(sortedByHonor, function(a, b)
+        return (self.summaries[a].honorPerHour or 0) > (self.summaries[b].honorPerHour or 0)
+    end)
+    self.sorted.honorPerHour = sortedByHonor
+
     -- Mark as fresh
     self.stale = false
     self.lastBuild = GetTime()
@@ -363,6 +425,9 @@ function GoldPH_Index:QuerySessions(filters)
     local minPerHour = filters.minPerHour or 0
     local hasGathering = filters.hasGathering or false
     local hasPickpocket = filters.hasPickpocket or false
+    local onlyXP = filters.onlyXP or false
+    local onlyRep = filters.onlyRep or false
+    local onlyHonor = filters.onlyHonor or false
 
     -- Start with pre-sorted base list
     local candidates = self.sorted[sort] or self.sorted.totalPerHour
@@ -399,6 +464,21 @@ function GoldPH_Index:QuerySessions(filters)
 
         -- Filter: pickpocket flag
         if passesFilters and hasPickpocket and not summary.hasPickpocket then
+            passesFilters = false
+        end
+
+        -- Phase 9: Filter: XP flag
+        if passesFilters and onlyXP and not summary.hasXP then
+            passesFilters = false
+        end
+
+        -- Phase 9: Filter: Rep flag
+        if passesFilters and onlyRep and not summary.hasRep then
+            passesFilters = false
+        end
+
+        -- Phase 9: Filter: Honor flag
+        if passesFilters and onlyHonor and not summary.hasHonor then
             passesFilters = false
         end
 

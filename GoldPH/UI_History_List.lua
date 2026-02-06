@@ -227,7 +227,17 @@ function GoldPH_History_List:RenderVisibleRows(offset)
                     badges = badges .. "|cff00ff00[G]|r "
                 end
                 if summary.hasPickpocket then
-                    badges = badges .. "|cffff00ff[P]|r"
+                    badges = badges .. "|cffff00ff[P]|r "
+                end
+                -- Phase 9: XP/Rep/Honor badges
+                if summary.hasXP then
+                    badges = badges .. "|cff80ccff[XP]|r "  -- Blue
+                end
+                if summary.hasRep then
+                    badges = badges .. "|cff4dff4d[Rep]|r "  -- Green
+                end
+                if summary.hasHonor then
+                    badges = badges .. "|cffff8000[Hon]|r"  -- Orange
                 end
                 row.badgesText:SetText(badges)
 

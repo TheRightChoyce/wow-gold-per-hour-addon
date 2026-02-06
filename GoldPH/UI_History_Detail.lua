@@ -355,6 +355,47 @@ function GoldPH_History_Detail:RenderSummaryTab()
         AddRow("Nodes Per Hour", tostring(nodesPerHour))
     end
 
+    -- Phase 9: XP Summary (if present)
+    if metrics.xpEnabled and metrics.xpGained > 0 then
+        yOffset = yOffset - 10
+        AddHeader("Experience")
+        AddRow("XP Gained", string.format("%d", metrics.xpGained))
+        AddRow("XP Per Hour", string.format("%d/hr", metrics.xpPerHour), {0.5, 0.8, 1})  -- Blue
+    end
+
+    -- Phase 9: Reputation Summary (if present)
+    if metrics.repEnabled and metrics.repGained > 0 then
+        yOffset = yOffset - 10
+        AddHeader("Reputation")
+        AddRow("Rep Gained", string.format("%d", metrics.repGained))
+        AddRow("Rep Per Hour", string.format("%d/hr", metrics.repPerHour), {0.3, 1, 0.3})  -- Green
+
+        -- Show top 3 factions
+        if metrics.repTopFactions and #metrics.repTopFactions > 0 then
+            yOffset = yOffset - 5
+            local topFactionsLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            topFactionsLabel:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 15, yOffset)
+            topFactionsLabel:SetText("Top Factions:")
+            topFactionsLabel:SetTextColor(Colors.gray[1], Colors.gray[2], Colors.gray[3])
+            yOffset = yOffset - 16
+
+            for _, factionData in ipairs(metrics.repTopFactions) do
+                AddRow("  " .. factionData.name, string.format("+%d", factionData.gain), {0.7, 0.7, 0.7})
+            end
+        end
+    end
+
+    -- Phase 9: Honor Summary (if present)
+    if metrics.honorEnabled and metrics.honorGained > 0 then
+        yOffset = yOffset - 10
+        AddHeader("Honor")
+        AddRow("Honor Gained", string.format("%d", metrics.honorGained))
+        AddRow("Honor Per Hour", string.format("%d/hr", metrics.honorPerHour), {1, 0.5, 0.3})  -- Orange
+        if metrics.honorKills > 0 then
+            AddRow("Honorable Kills", tostring(metrics.honorKills))
+        end
+    end
+
     -- Update scroll child height
     scrollChild:SetHeight(math.abs(yOffset) + 20)
 end
