@@ -4,6 +4,8 @@
     Shows real-time session metrics in accounting-style layout.
 ]]
 
+-- luacheck: globals GoldPH_Settings
+
 local GoldPH_HUD = {}
 
 local hudFrame = nil
@@ -357,7 +359,7 @@ function GoldPH_HUD:Update()
     end
 
     -- Phase 9: XP/Rep/Honor rows (only shown if metrics enabled and HUD expanded)
-    local showMetricsRows = not GoldPH_DB.settings.hudMinimized
+    local showMetricsRows = not GoldPH_Settings.hudMinimized
 
     -- XP row
     if showMetricsRows and metrics.xpEnabled and metrics.xpPerHour > 0 then
@@ -419,7 +421,7 @@ function GoldPH_HUD:Show()
         self:Update()
 
         -- Save visibility state
-        GoldPH_DB.settings.hudVisible = true
+        GoldPH_Settings.hudVisible = true
     end
 end
 
@@ -429,7 +431,7 @@ function GoldPH_HUD:Hide()
         hudFrame:Hide()
 
         -- Save visibility state
-        GoldPH_DB.settings.hudVisible = false
+        GoldPH_Settings.hudVisible = false
     end
 end
 
@@ -453,7 +455,7 @@ function GoldPH_HUD:ToggleMinimize()
     end
 
     -- Toggle the minimized state
-    GoldPH_DB.settings.hudMinimized = not GoldPH_DB.settings.hudMinimized
+    GoldPH_Settings.hudMinimized = not GoldPH_Settings.hudMinimized
     self:ApplyMinimizeState()
 end
 
@@ -463,7 +465,7 @@ function GoldPH_HUD:ApplyMinimizeState()
         return
     end
 
-    local isMinimized = GoldPH_DB.settings.hudMinimized
+    local isMinimized = GoldPH_Settings.hudMinimized
 
     -- Update button texture: "+" when minimized, "-" when expanded
     if isMinimized then

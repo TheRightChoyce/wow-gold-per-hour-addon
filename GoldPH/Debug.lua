@@ -4,6 +4,8 @@
     Provides invariant checks, test injection, and debugging tools.
 ]]
 
+-- luacheck: globals GoldPH_DB_Account
+
 local GoldPH_Debug = {}
 
 -- Color codes for chat output
@@ -143,7 +145,7 @@ function GoldPH_Debug:ValidateInvariants(session)
     if not ok3 then allPass = false end
 
     -- Log results if verbose or if any failed
-    if GoldPH_DB.debug.verbose or not allPass then
+    if GoldPH_DB_Account.debug.verbose or not allPass then
         for _, result in ipairs(results) do
             local color = result.ok and COLOR_GREEN or COLOR_RED
             print(string.format("%s[GoldPH Invariant] %s: %s%s", color, result.name, result.message, COLOR_RESET))
@@ -756,7 +758,7 @@ function GoldPH_Debug:ShowPriceSources()
     end
 
     print("\n  Priority order: Manual Overrides > Custom AH > TSM")
-    print("  Set manual override: /script GoldPH_DB.priceOverrides[itemID] = price")
+    print("  Set manual override: /script GoldPH_DB_Account.priceOverrides[itemID] = price")
 
     print(COLOR_YELLOW .. "=====================" .. COLOR_RESET)
 end

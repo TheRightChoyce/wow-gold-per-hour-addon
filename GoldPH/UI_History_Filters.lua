@@ -4,6 +4,8 @@
     Provides search, sort, zone, character, and flag filters.
 ]]
 
+-- luacheck: globals CreateFrame UIDropDownMenu_Initialize UIDropDownMenu_CreateInfo UIDROPDOWNMENU_OPEN_MENU ToggleDropDownMenu CloseDropDownMenus DropDownList1
+
 local GoldPH_History_Filters = {
     parent = nil,
     historyController = nil,

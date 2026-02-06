@@ -2,12 +2,14 @@
     PriceSources.lua - Pluggable AH price data sources
 
     Provides a common interface for querying AH prices from multiple sources:
-    - Manual overrides (GoldPH_DB.priceOverrides)
+    - Manual overrides (GoldPH_DB_Account.priceOverrides)
     - TSM (TradeSkillMaster addon)
     - Custom AH addon (user-developed)
 
     Priority order: Manual overrides > Custom addon > TSM > 0
 ]]
+
+-- luacheck: globals GoldPH_DB_Account
 
 local GoldPH_PriceSources = {}
 
@@ -23,8 +25,8 @@ local GoldPH_PriceSources = {}
 --------------------------------------------------
 
 local function GetManualOverride(itemID)
-    if GoldPH_DB.priceOverrides and GoldPH_DB.priceOverrides[itemID] then
-        return GoldPH_DB.priceOverrides[itemID]
+    if GoldPH_DB_Account.priceOverrides and GoldPH_DB_Account.priceOverrides[itemID] then
+        return GoldPH_DB_Account.priceOverrides[itemID]
     end
     return nil
 end
@@ -88,7 +90,7 @@ function GoldPH_PriceSources:GetAHPrice(itemID)
     -- Priority 1: Manual overrides (highest priority)
     local price = GetManualOverride(itemID)
     if price then
-        if GoldPH_DB.debug.verbose then
+        if GoldPH_DB_Account.debug.verbose then
             print(string.format("[GoldPH Price] Manual override: itemID=%d, price=%d", itemID, price))
         end
         return price
@@ -97,7 +99,7 @@ function GoldPH_PriceSources:GetAHPrice(itemID)
     -- Priority 2: Custom AH addon
     price = GetCustomAHPrice(itemID)
     if price then
-        if GoldPH_DB.debug.verbose then
+        if GoldPH_DB_Account.debug.verbose then
             print(string.format("[GoldPH Price] Custom AH: itemID=%d, price=%d", itemID, price))
         end
         return price
@@ -106,7 +108,7 @@ function GoldPH_PriceSources:GetAHPrice(itemID)
     -- Priority 3: TSM
     price = GetTSMPrice(itemID)
     if price then
-        if GoldPH_DB.debug.verbose then
+        if GoldPH_DB_Account.debug.verbose then
             print(string.format("[GoldPH Price] TSM: itemID=%d, price=%d", itemID, price))
         end
         return price
@@ -120,7 +122,7 @@ end
 function GoldPH_PriceSources:GetAvailableSources()
     local sources = {}
 
-    if GoldPH_DB.priceOverrides and next(GoldPH_DB.priceOverrides) ~= nil then
+    if GoldPH_DB_Account.priceOverrides and next(GoldPH_DB_Account.priceOverrides) ~= nil then
         table.insert(sources, "Manual Overrides")
     end
 
