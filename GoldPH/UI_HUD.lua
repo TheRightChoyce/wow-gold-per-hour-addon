@@ -37,6 +37,14 @@ local PH_BG_DARK = {0.08, 0.07, 0.06, 0.85}
 local PH_BG_PARCHMENT = {0.18, 0.16, 0.13, 0.85}
 local PH_BORDER_BRONZE = {0.52, 0.42, 0.28}
 
+-- Additional pH brand tokens
+local PH_ACCENT_WARNING = {0.90, 0.65, 0.20}  -- Warm amber for expenses/warnings
+local PH_ACCENT_GOLD_INCOME = {1.00, 0.82, 0.00}  -- Classic gold for income highlights
+local PH_TEXT_DISABLED = {0.45, 0.42, 0.38}  -- Darker muted for disabled/inactive
+local PH_HOVER = {0.22, 0.20, 0.17, 0.60}  -- Subtle hover state
+local PH_SELECTED = {0.35, 0.32, 0.26, 0.75}  -- Selected row/item
+local PH_DIVIDER = {0.28, 0.25, 0.22, 0.50}  -- Separator lines
+
 -- Micro-bar colors (pH brand palette)
 local MICROBAR_COLORS = {
     GOLD = {
@@ -322,15 +330,15 @@ function GoldPH_HUD:Initialize()
     local pauseBarLeft = pauseBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     pauseBarLeft:SetPoint("CENTER", -2, 0)
     pauseBarLeft:SetText("|")
-    pauseBarLeft:SetTextColor(1, 1, 1)
+    pauseBarLeft:SetTextColor(PH_TEXT_PRIMARY[1], PH_TEXT_PRIMARY[2], PH_TEXT_PRIMARY[3])
     local pauseBarRight = pauseBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     pauseBarRight:SetPoint("CENTER", 2, 0)
     pauseBarRight:SetText("|")
-    pauseBarRight:SetTextColor(1, 1, 1)
+    pauseBarRight:SetTextColor(PH_TEXT_PRIMARY[1], PH_TEXT_PRIMARY[2], PH_TEXT_PRIMARY[3])
     local pausePlayArrow = pauseBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     pausePlayArrow:SetPoint("CENTER", 0, 0)
     pausePlayArrow:SetText(">")
-    pausePlayArrow:SetTextColor(1, 1, 1)
+    pausePlayArrow:SetTextColor(PH_TEXT_PRIMARY[1], PH_TEXT_PRIMARY[2], PH_TEXT_PRIMARY[3])
     pausePlayArrow:Hide()
     hudFrame.pauseBarLeft = pauseBarLeft
     hudFrame.pauseBarRight = pauseBarRight
@@ -418,7 +426,7 @@ function GoldPH_HUD:Initialize()
     local headerTimer2 = headerContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     headerTimer2:SetPoint("LEFT", headerContainer, "CENTER", 6, 0)
     headerTimer2:SetJustifyH("LEFT")
-    headerTimer2:SetTextColor(0.8, 0.8, 0.8)
+    headerTimer2:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
     headerTimer2:SetText("0m")
     hudFrame.headerTimer2 = headerTimer2
 
@@ -492,7 +500,7 @@ function GoldPH_HUD:Initialize()
     sep1:SetHeight(1)
     local sep1Tex = sep1:CreateTexture(nil, "ARTWORK")
     sep1Tex:SetAllPoints()
-    sep1Tex:SetColorTexture(0.5, 0.5, 0.5, 0.5)  -- Gray semi-transparent line
+    sep1Tex:SetColorTexture(PH_DIVIDER[1], PH_DIVIDER[2], PH_DIVIDER[3], PH_DIVIDER[4])
     hudFrame.sep1 = sep1
     yPos = yPos - ROW_HEIGHT + 2  -- Less bottom padding
 
@@ -524,14 +532,14 @@ function GoldPH_HUD:Initialize()
     goldHrLabel:SetPoint("TOPLEFT", LABEL_X + 10, yPos)
     goldHrLabel:SetJustifyH("LEFT")
     goldHrLabel:SetText("/hr")
-    goldHrLabel:SetTextColor(1, 0.9, 0.5)  -- Lighter yellow instead of gray
+    goldHrLabel:SetTextColor(PH_ACCENT_GOLD_INCOME[1], PH_ACCENT_GOLD_INCOME[2], PH_ACCENT_GOLD_INCOME[3])
     hudFrame.goldHrLabel = goldHrLabel
 
     local goldHrValue = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     goldHrValue:SetPoint("TOPRIGHT", -LABEL_X, yPos)
     goldHrValue:SetJustifyH("RIGHT")
     goldHrValue:SetText("0g")
-    goldHrValue:SetTextColor(1, 0.9, 0.5)  -- Lighter yellow instead of gray
+    goldHrValue:SetTextColor(PH_ACCENT_GOLD_INCOME[1], PH_ACCENT_GOLD_INCOME[2], PH_ACCENT_GOLD_INCOME[3])
     hudFrame.goldHrValue = goldHrValue
     yPos = yPos - ROW_HEIGHT + 2
 
@@ -560,7 +568,7 @@ function GoldPH_HUD:Initialize()
     sep2:SetHeight(1)
     local sep2Tex = sep2:CreateTexture(nil, "ARTWORK")
     sep2Tex:SetAllPoints()
-    sep2Tex:SetColorTexture(0.5, 0.5, 0.5, 0.5)  -- Gray semi-transparent line
+    sep2Tex:SetColorTexture(PH_DIVIDER[1], PH_DIVIDER[2], PH_DIVIDER[3], PH_DIVIDER[4])
     hudFrame.sep2 = sep2
     yPos = yPos - ROW_HEIGHT + 2  -- Less bottom padding
 
@@ -575,36 +583,39 @@ function GoldPH_HUD:Initialize()
     totalHrLabel:SetPoint("TOPLEFT", LABEL_X + 10, yPos)
     totalHrLabel:SetJustifyH("LEFT")
     totalHrLabel:SetText("/hr")
-    totalHrLabel:SetTextColor(1, 0.9, 0.5)  -- Lighter yellow instead of gray
+    totalHrLabel:SetTextColor(PH_ACCENT_GOLD_INCOME[1], PH_ACCENT_GOLD_INCOME[2], PH_ACCENT_GOLD_INCOME[3])
     hudFrame.totalHrLabel = totalHrLabel
 
     local totalHrValue = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     totalHrValue:SetPoint("TOPRIGHT", -LABEL_X, yPos)
     totalHrValue:SetJustifyH("RIGHT")
     totalHrValue:SetText("0g")
-    totalHrValue:SetTextColor(1, 0.9, 0.5)  -- Lighter yellow instead of gray
+    totalHrValue:SetTextColor(PH_ACCENT_GOLD_INCOME[1], PH_ACCENT_GOLD_INCOME[2], PH_ACCENT_GOLD_INCOME[3])
     hudFrame.totalHrValue = totalHrValue
 
     -- Phase 9: XP/Rep/Honor rows (only shown if enabled; grouped below all gold totals)
     yPos = yPos - ROW_HEIGHT
 
     local xpLabel, xpValue = CreateRow("XP/hr", yPos, false)
-    xpLabel:SetTextColor(0.6, 0.0, 1.0)   -- WoW-style purple for XP
-    xpValue:SetTextColor(0.6, 0.0, 1.0)
+    local xpColor = MICROBAR_COLORS.XP.fill
+    xpLabel:SetTextColor(xpColor[1], xpColor[2], xpColor[3])
+    xpValue:SetTextColor(xpColor[1], xpColor[2], xpColor[3])
     hudFrame.xpLabel = xpLabel
     hudFrame.xpValue = xpValue
     yPos = yPos - ROW_HEIGHT
 
     local repLabel, repValue = CreateRow("Rep/hr", yPos, false)
-    repLabel:SetTextColor(0.0, 1.0, 0.0)  -- WoW-style green for reputation
-    repValue:SetTextColor(0.0, 1.0, 0.0)
+    local repColor = MICROBAR_COLORS.REP.fill
+    repLabel:SetTextColor(repColor[1], repColor[2], repColor[3])
+    repValue:SetTextColor(repColor[1], repColor[2], repColor[3])
     hudFrame.repLabel = repLabel
     hudFrame.repValue = repValue
     yPos = yPos - ROW_HEIGHT
 
     local honorLabel, honorValue = CreateRow("Honor/hr", yPos, false)
-    honorLabel:SetTextColor(1.0, 0.5, 0.0) -- WoW-style orange for honor
-    honorValue:SetTextColor(1.0, 0.5, 0.0)
+    local honorColor = MICROBAR_COLORS.HONOR.fill
+    honorLabel:SetTextColor(honorColor[1], honorColor[2], honorColor[3])
+    honorValue:SetTextColor(honorColor[1], honorColor[2], honorColor[3])
     hudFrame.honorLabel = honorLabel
     hudFrame.honorValue = honorValue
 
@@ -765,7 +776,7 @@ function GoldPH_HUD:Update()
     -- Expenses (shown with parentheses since it's a deduction)
     if metrics.expenses > 0 then
         hudFrame.expValue:SetText("(" .. GoldPH_Ledger:FormatMoney(metrics.expenses) .. ")")
-        hudFrame.expValue:SetTextColor(1, 0.5, 0.5)  -- Light red for expenses
+        hudFrame.expValue:SetTextColor(PH_ACCENT_WARNING[1], PH_ACCENT_WARNING[2], PH_ACCENT_WARNING[3])
     else
         hudFrame.expValue:SetText("0g")
         hudFrame.expValue:SetTextColor(1, 1, 1)
