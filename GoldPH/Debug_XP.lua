@@ -1,4 +1,5 @@
 -- Debug XP Tracking
+-- luacheck: globals GoldPH_SessionManager UnitLevel MAX_PLAYER_LEVEL UnitXP UnitXPMax
 -- Run this in-game with: /script [paste code below]
 
 local function DebugXPTracking()

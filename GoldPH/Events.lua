@@ -4,7 +4,7 @@
     Handles WoW events and routes them to accounting actions.
 ]]
 
--- luacheck: globals GetMaxPlayerLevel UnitLevel UnitXP UnitXPMax GetNumFactions GetFactionInfo
+-- luacheck: globals GetMaxPlayerLevel UnitLevel UnitXP UnitXPMax GetNumFactions GetFactionInfo GoldPH_DB_Account
 -- luacheck: ignore delta
 
 local GoldPH_Events = {}

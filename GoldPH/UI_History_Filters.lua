@@ -273,6 +273,31 @@ function GoldPH_History_Filters:ShowCharMenu(button)
 end
 
 --------------------------------------------------
+-- Update Char Dropdown Label from filter state
+--------------------------------------------------
+function GoldPH_History_Filters:UpdateCharDropdownLabel()
+    local charKeys = self.historyController.filterState.charKeys
+    if not charKeys then
+        self.charDropdown.text:SetText("Char: All")
+        return
+    end
+    local count = 0
+    local firstKey = nil
+    for k, _ in pairs(charKeys) do
+        count = count + 1
+        if not firstKey then firstKey = k end
+    end
+    if count == 0 then
+        self.charDropdown.text:SetText("Char: All")
+    elseif count == 1 then
+        local charName = firstKey:match("^([^-]+)")
+        self.charDropdown.text:SetText("Char: " .. (charName or firstKey))
+    else
+        self.charDropdown.text:SetText("Char: " .. count .. " chars")
+    end
+end
+
+--------------------------------------------------
 -- Helper: Update Flags Button Label
 --------------------------------------------------
 function GoldPH_History_Filters:UpdateFlagsLabel()

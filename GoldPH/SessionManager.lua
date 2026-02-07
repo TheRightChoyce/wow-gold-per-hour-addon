@@ -4,7 +4,7 @@
     Handles session creation, persistence, and metrics computation.
 ]]
 
--- luacheck: globals GetMaxPlayerLevel UnitLevel UnitXP UnitXPMax
+-- luacheck: globals GetMaxPlayerLevel UnitLevel UnitXP UnitXPMax GoldPH_DB_Account
 
 local GoldPH_SessionManager = {}
 

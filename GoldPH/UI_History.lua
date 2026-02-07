@@ -4,7 +4,7 @@
     Manages the session history window with filters, list, and detail panes.
 ]]
 
--- luacheck: globals GoldPH_Settings
+-- luacheck: globals GoldPH_Settings UnitName GetRealmName UnitFactionGroup
 
 local GoldPH_History = {
     frame = nil,
@@ -170,6 +170,18 @@ function GoldPH_History:Show()
             self.filterState[k] = v
         end
     end
+
+    -- Default character filter to current character (if not already set)
+    if self.filterState.charKeys == nil then
+        local charName = UnitName("player") or "Unknown"
+        local realm = GetRealmName() or "Unknown"
+        local faction = UnitFactionGroup("player") or "Unknown"
+        local currentCharKey = charName .. "-" .. realm .. "-" .. faction
+        self.filterState.charKeys = { [currentCharKey] = true }
+    end
+
+    -- Sync char dropdown label to filter state
+    GoldPH_History_Filters:UpdateCharDropdownLabel()
 
     -- Apply filters and refresh list
     self:RefreshList()

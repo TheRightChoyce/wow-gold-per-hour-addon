@@ -5,6 +5,8 @@
     of historical sessions. Designed for scalability (100+ sessions).
 ]]
 
+-- luacheck: globals GoldPH_DB_Account GetRealmName UnitFactionGroup UnitName
+
 local GoldPH_Index = {
     stale = true,
     lastBuild = 0,
