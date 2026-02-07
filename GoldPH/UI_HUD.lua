@@ -26,19 +26,40 @@ local VALUE_X = FRAME_WIDTH - PADDING  -- Right edge for right-aligned values
 local ROW_HEIGHT = 14
 local SECTION_GAP = 4
 
--- Muted semantic colors for micro-bars
+-- pH Brand colors (from PH_BRAND_BRIEF.md - Classic-safe)
+local PH_TEXT_PRIMARY = {0.86, 0.82, 0.70}
+local PH_TEXT_MUTED = {0.62, 0.58, 0.50}
+local PH_ACCENT_GOOD = {0.25, 0.78, 0.42}
+local PH_ACCENT_NEUTRAL = {0.55, 0.70, 0.55}
+local PH_BG_DARK = {0.08, 0.07, 0.06, 0.85}
+local PH_BG_PARCHMENT = {0.18, 0.16, 0.13, 0.85}
+local PH_BORDER_BRONZE = {0.52, 0.42, 0.28}
+
+-- Micro-bar colors (pH brand palette)
 local MICROBAR_COLORS = {
-    GOLD = { fill = {1.00, 0.78, 0.22, 0.90}, bg = {0.10, 0.10, 0.10, 0.55} },
-    XP = { fill = {0.35, 0.62, 0.95, 0.90}, bg = {0.10, 0.10, 0.10, 0.55} },
-    REP = { fill = {0.35, 0.82, 0.45, 0.90}, bg = {0.10, 0.10, 0.10, 0.55} },
-    HONOR = { fill = {0.72, 0.40, 0.90, 0.90}, bg = {0.10, 0.10, 0.10, 0.55} },
+    GOLD = {
+        fill = {1.00, 0.82, 0.00, 0.85},  -- Classic gold
+        bg = PH_BG_DARK
+    },
+    XP = {
+        fill = {0.58, 0.51, 0.79, 0.85},  -- Classic purple XP bar
+        bg = PH_BG_DARK
+    },
+    REP = {
+        fill = PH_ACCENT_GOOD,  -- Alchemy green
+        bg = PH_BG_DARK
+    },
+    HONOR = {
+        fill = {0.90, 0.60, 0.20, 0.85},  -- Classic honor orange
+        bg = PH_BG_DARK
+    },
 }
 
 local METRIC_ICONS = {
     gold = "Interface\\MoneyFrame\\UI-GoldIcon",
-    xp = "Interface\\PaperDollInfoFrame\\UI-Character-Skills-Icon",
-    rep = "Interface\\FriendsFrame\\FriendsFrameScrollIcon",
-    honor = "Interface\\PVPFrame\\PVP-Currency-Alliance",
+    xp = "Interface\\Icons\\INV_Misc_Book_11",  -- Book icon for learning/XP
+    rep = "Interface\\Icons\\INV_Misc_Ribbon_01",  -- Ribbon for reputation
+    honor = "Interface\\Icons\\Ability_PVP_Banner_Horde",  -- Banner for honor (faction-neutral)
 }
 
 -- Runtime state for micro-bars (not persisted)
@@ -116,7 +137,7 @@ local function RepositionActiveTiles(activeTiles, isCollapsed)
     local tileCount = #activeTiles
     if tileCount == 0 then return end
 
-    local tileWidth = 52
+    local tileWidth = 50
     local tileSpacing = 6
 
     if isCollapsed then
@@ -124,8 +145,8 @@ local function RepositionActiveTiles(activeTiles, isCollapsed)
         for i, state in ipairs(activeTiles) do
             state.tile:ClearAllPoints()
             if i == 1 then
-                -- First tile: position to right of timer
-                state.tile:SetPoint("LEFT", hudFrame.headerTimer, "RIGHT", 12, 0)
+                -- First tile: position to right of timer (compact spacing)
+                state.tile:SetPoint("LEFT", hudFrame.headerTimer, "RIGHT", 10, 0)
             else
                 -- Subsequent tiles: position to right of previous tile
                 state.tile:SetPoint("LEFT", activeTiles[i-1].tile, "RIGHT", tileSpacing, 0)
@@ -219,7 +240,7 @@ function GoldPH_HUD:Initialize()
     hudFrame:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
     hudFrame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -50, -200)
 
-    -- Apply WoW-themed backdrop (matches standard UI elements)
+    -- Apply WoW-themed backdrop with pH brand colors
     hudFrame:SetBackdrop({
         bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -228,8 +249,10 @@ function GoldPH_HUD:Initialize()
         edgeSize = 16,
         insets = { left = 4, right = 4, top = 4, bottom = 4 },
     })
-    hudFrame:SetBackdropColor(0, 0, 0, 0.8)
-    hudFrame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+    -- Use pH brand parchment background
+    hudFrame:SetBackdropColor(PH_BG_PARCHMENT[1], PH_BG_PARCHMENT[2], PH_BG_PARCHMENT[3], PH_BG_PARCHMENT[4])
+    -- Use pH brand bronze border
+    hudFrame:SetBackdropBorderColor(PH_BORDER_BRONZE[1], PH_BORDER_BRONZE[2], PH_BORDER_BRONZE[3], 1)
 
     -- Make it movable
     hudFrame:SetMovable(true)
@@ -309,18 +332,18 @@ function GoldPH_HUD:Initialize()
     --------------------------------------------------
     local headerYPos = -PADDING
 
-    -- Title (always visible) - compact "ph" for horizontal layout
+    -- Title (always visible) - "pH" branding (lowercase p, uppercase H)
     local title = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOPLEFT", PADDING, headerYPos)
-    title:SetText("ph")
-    title:SetTextColor(1.0, 0.82, 0.0)  -- Gold color
+    title:SetText("pH")
+    title:SetTextColor(PH_TEXT_PRIMARY[1], PH_TEXT_PRIMARY[2], PH_TEXT_PRIMARY[3])  -- pH brand primary text
     hudFrame.title = title
 
     -- Timer (always visible, next to title)
     local headerTimer = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     headerTimer:SetPoint("LEFT", title, "RIGHT", 6, 0)
     headerTimer:SetJustifyH("LEFT")
-    headerTimer:SetTextColor(0.8, 0.8, 0.8)  -- Lighter gray for timer
+    headerTimer:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])  -- pH brand muted text
     headerTimer:SetText("0m")
     hudFrame.headerTimer = headerTimer
 
@@ -353,10 +376,10 @@ function GoldPH_HUD:Initialize()
     hudFrame.headerTimer2 = headerTimer2
 
     --------------------------------------------------
-    -- Micro-bar metric tiles (for collapsed state)
+    -- Micro-bar metric tiles (for collapsed state - single horizontal line)
     --------------------------------------------------
-    local tileWidth = 52
-    local tileHeight = 42
+    local tileWidth = 50
+    local tileHeight = 38
     local colorKeys = { gold = "GOLD", xp = "XP", rep = "REP", honor = "HONOR" }
 
     for metricKey, state in pairs(metricStates) do
@@ -365,23 +388,24 @@ function GoldPH_HUD:Initialize()
         tile:SetSize(tileWidth, tileHeight)
         state.tile = tile
 
-        -- Icon (smaller, positioned at top)
+        -- Icon (compact, positioned at top left)
         local icon = tile:CreateTexture(nil, "ARTWORK")
-        icon:SetSize(14, 14)
-        icon:SetPoint("TOP", tile, "TOP", 0, -2)
+        icon:SetSize(12, 12)
+        icon:SetPoint("TOP", tile, "TOP", 0, -1)
         icon:SetTexture(METRIC_ICONS[metricKey])
         state.icon = icon
 
-        -- Rate text (tighter spacing)
+        -- Rate text (pH brand muted color, compact)
         local rateText = tile:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         rateText:SetPoint("TOP", icon, "BOTTOM", 0, -1)
         rateText:SetJustifyH("CENTER")
         rateText:SetText("0/h")
+        rateText:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
         state.valueText = rateText
 
-        -- Micro-bar background (tighter spacing)
+        -- Micro-bar background (pH brand dark background)
         local barBg = CreateFrame("Frame", nil, tile, "BackdropTemplate")
-        barBg:SetSize(tileWidth - 4, 6)
+        barBg:SetSize(tileWidth - 4, 5)
         barBg:SetPoint("TOP", rateText, "BOTTOM", 0, -1)
         barBg:SetBackdrop({
             bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -392,7 +416,7 @@ function GoldPH_HUD:Initialize()
         local bgColor = MICROBAR_COLORS[colorKey].bg
         barBg:SetBackdropColor(bgColor[1], bgColor[2], bgColor[3], bgColor[4])
 
-        -- StatusBar fill
+        -- StatusBar fill (pH brand colors)
         local bar = CreateFrame("StatusBar", nil, barBg)
         bar:SetAllPoints(barBg)
         bar:SetMinMaxValues(0, 1)
@@ -655,9 +679,10 @@ function GoldPH_HUD:Update()
         end
     end
 
-    -- Update timers (both collapsed and expanded versions)
+    -- Update timers (both collapsed and expanded versions) with pH brand colors
     local timerText = GoldPH_SessionManager:FormatDuration(metrics.durationSec)
-    local timerColor = isPaused and {1, 0.45, 0.2} or {0.8, 0.8, 0.8}
+    -- Use pH ACCENT_BAD for paused (red), pH TEXT_MUTED for normal
+    local timerColor = isPaused and {0.78, 0.32, 0.28} or PH_TEXT_MUTED
 
     hudFrame.headerTimer:SetText(timerText)
     hudFrame.headerTimer:SetTextColor(timerColor[1], timerColor[2], timerColor[3])
@@ -864,8 +889,8 @@ function GoldPH_HUD:ApplyMinimizeState()
     if isMinimized then
         hudFrame:SetHeight(FRAME_HEIGHT_MINI)
         -- Wider frame for horizontal layout (accommodate title + timer + 4 tiles)
-        -- 20 (title) + 40 (timer) + 4*52 (tiles) + 3*6 (tile spacing) + 18 (gaps) + 24 (padding) = ~320
-        hudFrame:SetWidth(320)
+        -- 16 (pH) + 6 (gap) + 35 (timer) + 12 (gap) + 4*50 (tiles) + 3*6 (spacing) + 24 (padding) = ~311
+        hudFrame:SetWidth(310)
     else
         hudFrame:SetHeight(FRAME_HEIGHT)
         hudFrame:SetWidth(FRAME_WIDTH)
