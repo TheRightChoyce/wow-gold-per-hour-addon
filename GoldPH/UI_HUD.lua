@@ -128,13 +128,14 @@ local function RepositionActiveTiles(activeTiles)
     for i, state in ipairs(activeTiles) do
         local xOffset = startX + ((i - 1) * (tileWidth + tileSpacing))
         state.tile:ClearAllPoints()
-        state.tile:SetPoint("TOP", hudFrame.title, "BOTTOM", xOffset, -8)
+        state.tile:SetPoint("TOP", hudFrame.headerContainer, "BOTTOM", xOffset, -8)
     end
 end
 
 -- Update micro-bars for collapsed state
 local function UpdateMicroBars(session, metrics)
     local cfg = GoldPH_DB.settings.microBars
+    if not cfg then return end
 
     -- Skip if paused (freeze bars)
     if GoldPH_SessionManager:IsPaused(session) then
@@ -521,7 +522,7 @@ function GoldPH_HUD:Initialize()
         -- Dynamic update interval
         local interval = UPDATE_INTERVAL  -- Default 1.0s
         local cfg = GoldPH_DB.settings.microBars
-        if cfg.enabled and GoldPH_DB.settings.hudMinimized then
+        if cfg and cfg.enabled and GoldPH_DB.settings.hudMinimized then
             interval = cfg.updateInterval  -- 0.25s for micro-bars
         end
 
@@ -646,7 +647,7 @@ function GoldPH_HUD:Update()
 
     -- Update micro-bars if collapsed and enabled
     local cfg = GoldPH_DB.settings.microBars
-    if cfg.enabled and GoldPH_DB.settings.hudMinimized then
+    if cfg and cfg.enabled and GoldPH_DB.settings.hudMinimized then
         UpdateMicroBars(session, metrics)
     end
 
