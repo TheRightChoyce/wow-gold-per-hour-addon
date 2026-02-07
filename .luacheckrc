@@ -123,6 +123,8 @@ globals = {
     "UIDropDownMenu_SetButtonWidth",
     "ToggleDropDownMenu",
     "CloseDropDownMenus",
+    "DropDownList1",
+    "UIDROPDOWNMENU_OPEN_MENU",
 
     -- UI Templates
     "UIPanelCloseButton",

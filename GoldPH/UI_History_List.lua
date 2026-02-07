@@ -4,6 +4,9 @@
     Displays sessions in a scrollable list with row pooling for performance.
 ]]
 
+-- Access pH brand colors
+local pH_Colors = _G.pH_Colors
+
 local GoldPH_History_List = {
     parent = nil,
     historyController = nil,
@@ -17,6 +20,13 @@ local GoldPH_History_List = {
     rowHeight = 45,
     numVisibleRows = 8,  -- Calculated based on available height
 }
+
+-- pH brand colors for list rows
+local TEXT_PRIMARY = pH_Colors.TEXT_PRIMARY
+local TEXT_MUTED = pH_Colors.TEXT_MUTED
+local ACCENT_GOLD = pH_Colors.ACCENT_GOLD
+local HOVER = pH_Colors.HOVER
+local SELECTED = pH_Colors.SELECTED
 
 --------------------------------------------------
 -- Initialize
@@ -84,7 +94,7 @@ function GoldPH_History_List:CreateRow(index)
     local goldPerHour = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     goldPerHour:SetPoint("TOPRIGHT", row, "TOPRIGHT", -5, -4)
     goldPerHour:SetJustifyH("RIGHT")
-    goldPerHour:SetTextColor(1, 0.82, 0)  -- Gold color
+    goldPerHour:SetTextColor(ACCENT_GOLD[1], ACCENT_GOLD[2], ACCENT_GOLD[3])
     row.goldPerHour = goldPerHour
 
     -- Line 2: Zone and duration (left-aligned)
@@ -97,14 +107,14 @@ function GoldPH_History_List:CreateRow(index)
     local durationText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     durationText:SetPoint("TOPLEFT", zoneText, "BOTTOMLEFT", 0, -2)
     durationText:SetJustifyH("LEFT")
-    durationText:SetTextColor(0.7, 0.7, 0.7)
+    durationText:SetTextColor(TEXT_MUTED[1], TEXT_MUTED[2], TEXT_MUTED[3])
     row.durationText = durationText
 
     -- Line 3: Character and badges (left-aligned)
     local charText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     charText:SetPoint("TOPLEFT", durationText, "BOTTOMLEFT", 0, -2)
     charText:SetJustifyH("LEFT")
-    charText:SetTextColor(0.5, 0.8, 1)  -- Light blue for character
+    charText:SetTextColor(TEXT_PRIMARY[1], TEXT_PRIMARY[2], TEXT_PRIMARY[3])
     row.charText = charText
 
     -- Badges (G = gathering, P = pickpocket)
@@ -123,7 +133,7 @@ function GoldPH_History_List:CreateRow(index)
     -- Hover effect with tooltip
     row:SetScript("OnEnter", function(self)
         if self.sessionId ~= GoldPH_History_List.selectedId then
-            self:SetBackdropColor(0.2, 0.2, 0.2, 0.5)
+            self:SetBackdropColor(HOVER[1], HOVER[2], HOVER[3], 0.5)
         end
 
         -- Show tooltip
@@ -243,7 +253,7 @@ function GoldPH_History_List:RenderVisibleRows(offset)
 
                 -- Selection highlight
                 if sessionId == self.selectedId then
-                    row:SetBackdropColor(0.3, 0.5, 0.7, 0.6)
+                    row:SetBackdropColor(SELECTED[1], SELECTED[2], SELECTED[3], 0.75)
                 else
                     row:SetBackdropColor(0, 0, 0, 0)
                 end

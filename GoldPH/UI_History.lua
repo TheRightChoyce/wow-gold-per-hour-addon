@@ -4,6 +4,9 @@
     Manages the session history window with filters, list, and detail panes.
 ]]
 
+-- Access pH brand colors
+local pH_Colors = _G.pH_Colors
+
 local GoldPH_History = {
     frame = nil,
     listPane = nil,
@@ -55,7 +58,7 @@ function GoldPH_History:Initialize()
         GoldPH_History:OnKeyDown(key)
     end)
 
-    -- Backdrop
+    -- Backdrop (pH brand colors)
     frame:SetBackdrop({
         bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -64,8 +67,10 @@ function GoldPH_History:Initialize()
         edgeSize = 16,
         insets = {left = 4, right = 4, top = 4, bottom = 4}
     })
-    frame:SetBackdropColor(0, 0, 0, 0.9)
-    frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+    local PH_BG_PARCHMENT = pH_Colors.BG_PARCHMENT
+    local PH_BORDER_BRONZE = pH_Colors.BORDER_BRONZE
+    frame:SetBackdropColor(PH_BG_PARCHMENT[1], PH_BG_PARCHMENT[2], PH_BG_PARCHMENT[3], 0.95)
+    frame:SetBackdropBorderColor(PH_BORDER_BRONZE[1], PH_BORDER_BRONZE[2], PH_BORDER_BRONZE[3], 1)
 
     -- Title bar
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -86,7 +91,7 @@ function GoldPH_History:Initialize()
     filtersPane:SetHeight(40)
     self.filtersPane = filtersPane
 
-    -- List pane (left, 240px width)
+    -- List pane (left, 240px width) - pH brand colors
     local listPane = CreateFrame("Frame", nil, frame, "BackdropTemplate")
     listPane:SetPoint("TOPLEFT", filtersPane, "BOTTOMLEFT", 0, -5)
     listPane:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 10, 10)
@@ -99,11 +104,13 @@ function GoldPH_History:Initialize()
         edgeSize = 12,
         insets = {left = 3, right = 3, top = 3, bottom = 3}
     })
-    listPane:SetBackdropColor(0.05, 0.05, 0.05, 1)
-    listPane:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+    local PH_BG_DARK = pH_Colors.BG_DARK
+    local PH_DIVIDER = pH_Colors.DIVIDER
+    listPane:SetBackdropColor(PH_BG_DARK[1], PH_BG_DARK[2], PH_BG_DARK[3], 0.90)
+    listPane:SetBackdropBorderColor(PH_DIVIDER[1], PH_DIVIDER[2], PH_DIVIDER[3], 0.80)
     self.listPane = listPane
 
-    -- Detail pane (right, remaining width)
+    -- Detail pane (right, remaining width) - pH brand colors
     local detailPane = CreateFrame("Frame", nil, frame, "BackdropTemplate")
     detailPane:SetPoint("TOPLEFT", listPane, "TOPRIGHT", 5, 0)
     detailPane:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 10)
@@ -115,8 +122,8 @@ function GoldPH_History:Initialize()
         edgeSize = 12,
         insets = {left = 3, right = 3, top = 3, bottom = 3}
     })
-    detailPane:SetBackdropColor(0.05, 0.05, 0.05, 1)
-    detailPane:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+    detailPane:SetBackdropColor(PH_BG_DARK[1], PH_BG_DARK[2], PH_BG_DARK[3], 0.90)
+    detailPane:SetBackdropBorderColor(PH_DIVIDER[1], PH_DIVIDER[2], PH_DIVIDER[3], 0.80)
     self.detailPane = detailPane
 
     self.frame = frame
@@ -146,7 +153,8 @@ function GoldPH_History:Show()
         local loadingText = self.frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
         loadingText:SetPoint("CENTER", self.frame, "CENTER")
         loadingText:SetText("Building index...")
-        loadingText:SetTextColor(1, 0.82, 0)
+        local PH_TEXT_MUTED = pH_Colors.TEXT_MUTED
+        loadingText:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
 
         -- Build index
         GoldPH_Index:Build()
