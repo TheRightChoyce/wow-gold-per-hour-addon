@@ -30,6 +30,28 @@ local function InitializeSavedVariables()
                 historyFilters = {
                     sort = "totalPerHour",
                 },
+                microBars = {
+                    enabled = true,
+                    height = 6,
+                    updateInterval = 0.25,
+                    smoothingAlpha = 0.25,
+                    normalization = {
+                        mode = "sessionPeak",
+                        peakDecay = { enabled = false, ratePerMin = 0.03 },
+                    },
+                    minRefFloors = {
+                        gold = 50000,   -- 5g/h in copper
+                        xp = 5000,
+                        rep = 50,
+                        honor = 100,
+                    },
+                    updateThresholds = {
+                        gold = 1000,    -- 0.1g/h (to avoid string churn)
+                        xp = 100,
+                        rep = 5,
+                        honor = 10,
+                    },
+                },
             },
 
             priceOverrides = {},
@@ -82,7 +104,8 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
             if session.accumulatedDuration == nil then
                 session.accumulatedDuration = 0
             end
-            if session.currentLoginAt == nil then
+            -- Only start/resume the clock if not paused (pause state persists across logout)
+            if session.currentLoginAt == nil and not session.pausedAt then
                 session.currentLoginAt = time()
                 wasNewLogin = true
             end
@@ -147,6 +170,8 @@ local function ShowHelp()
     print("|cff00ff00=== GoldPH Commands ===|r")
     print("|cffffff00/goldph start|r - Start a new session")
     print("|cffffff00/goldph stop|r - Stop the active session")
+    print("|cffffff00/goldph pause|r - Pause the session (clock and events)")
+    print("|cffffff00/goldph resume|r - Resume a paused session")
     print("|cffffff00/goldph show|r - Show/hide the HUD")
     print("|cffffff00/goldph status|r - Show current session status")
     print("|cffffff00/goldph history|r - Open session history")
@@ -212,6 +237,20 @@ local function HandleCommand(msg)
         print("[GoldPH] " .. message)
         GoldPH_HUD:Update()
 
+    elseif cmd == "pause" then
+        local ok, message = GoldPH_SessionManager:PauseSession()
+        print("[GoldPH] " .. message)
+        if ok then
+            GoldPH_HUD:Update()
+        end
+
+    elseif cmd == "resume" then
+        local ok, message = GoldPH_SessionManager:ResumeSession()
+        print("[GoldPH] " .. message)
+        if ok then
+            GoldPH_HUD:Update()
+        end
+
     elseif cmd == "show" then
         GoldPH_HUD:Toggle()
 
@@ -219,8 +258,10 @@ local function HandleCommand(msg)
         local session = GoldPH_SessionManager:GetActiveSession()
         if session then
             local metrics = GoldPH_SessionManager:GetMetrics(session)
-            print(string.format("[GoldPH] Session #%d | Duration: %s | Cash: %s | Cash/hr: %s",
+            local pausedStr = GoldPH_SessionManager:IsPaused(session) and " (paused)" or ""
+            print(string.format("[GoldPH] Session #%d%s | Duration: %s | Cash: %s | Cash/hr: %s",
                                 session.id,
+                                pausedStr,
                                 GoldPH_SessionManager:FormatDuration(metrics.durationSec),
                                 GoldPH_Ledger:FormatMoney(metrics.cash),
                                 GoldPH_Ledger:FormatMoneyShort(metrics.cashPerHour)))
