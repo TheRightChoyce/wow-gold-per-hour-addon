@@ -15,16 +15,12 @@ local PADDING = 12
 local FRAME_WIDTH = 180
 -- Base expanded height; actual height is dynamically adjusted based on visible rows
 local FRAME_HEIGHT = 180
--- Calculate minimized height to match visual padding:
--- Top visual padding: PADDING (12px) - backdrop inset (4px) = 8px visual
--- Title: ~18px (GameFontNormalLarge)
--- Gap: 4px
--- HeaderLine: ~14px (GameFontNormalSmall)
--- Micro-bar tiles: ~50px (icon + text + bar)
--- Bottom visual padding: should match top (8px visual) + backdrop inset (4px) = 12px from frame bottom
--- Total: 12 (top) + 18 + 4 + 14 + 50 + 12 (bottom) = 110px
--- Reduced to 66px for compact design with micro-bars
-local FRAME_HEIGHT_MINI = 66  -- Minimized height with micro-bars
+-- Calculate minimized height for horizontal bar:
+-- Top padding: 8px
+-- Single horizontal bar: ~48px (icon 16px + text + bar 6px + spacing)
+-- Bottom padding: 8px
+-- Total: 8 + 48 + 8 = 64px
+local FRAME_HEIGHT_MINI = 64  -- Minimized height with horizontal micro-bars
 local LABEL_X = PADDING
 local VALUE_X = FRAME_WIDTH - PADDING  -- Right edge for right-aligned values
 local ROW_HEIGHT = 14
@@ -115,20 +111,35 @@ local function FormatRateForMicroBar(metricKey, rate)
     end
 end
 
--- Reposition active tiles horizontally (centered group)
-local function RepositionActiveTiles(activeTiles)
+-- Reposition active tiles horizontally (after timer in collapsed, or below header in expanded)
+local function RepositionActiveTiles(activeTiles, isCollapsed)
     local tileCount = #activeTiles
     if tileCount == 0 then return end
 
-    local tileWidth = 56
-    local tileSpacing = 8
-    local totalWidth = (tileCount * tileWidth) + ((tileCount - 1) * tileSpacing)
-    local startX = -totalWidth / 2 + tileWidth / 2
+    local tileWidth = 52
+    local tileSpacing = 6
 
-    for i, state in ipairs(activeTiles) do
-        local xOffset = startX + ((i - 1) * (tileWidth + tileSpacing))
-        state.tile:ClearAllPoints()
-        state.tile:SetPoint("TOP", hudFrame.headerContainer, "BOTTOM", xOffset, -8)
+    if isCollapsed then
+        -- Horizontal layout: position tiles to the right of timer
+        for i, state in ipairs(activeTiles) do
+            state.tile:ClearAllPoints()
+            if i == 1 then
+                -- First tile: position to right of timer
+                state.tile:SetPoint("LEFT", hudFrame.headerTimer, "RIGHT", 12, 0)
+            else
+                -- Subsequent tiles: position to right of previous tile
+                state.tile:SetPoint("LEFT", activeTiles[i-1].tile, "RIGHT", tileSpacing, 0)
+            end
+        end
+    else
+        -- Expanded layout: centered below header container
+        local totalWidth = (tileCount * tileWidth) + ((tileCount - 1) * tileSpacing)
+        local startX = -totalWidth / 2 + tileWidth / 2
+        for i, state in ipairs(activeTiles) do
+            local xOffset = startX + ((i - 1) * (tileWidth + tileSpacing))
+            state.tile:ClearAllPoints()
+            state.tile:SetPoint("TOP", hudFrame.headerContainer, "BOTTOM", xOffset, -8)
+        end
     end
 end
 
@@ -197,8 +208,8 @@ local function UpdateMicroBars(session, metrics)
         end
     end
 
-    -- Reposition tiles horizontally
-    RepositionActiveTiles(activeTiles)
+    -- Reposition tiles horizontally (collapsed layout)
+    RepositionActiveTiles(activeTiles, true)
 end
 
 -- Initialize HUD
@@ -298,46 +309,54 @@ function GoldPH_HUD:Initialize()
     --------------------------------------------------
     local headerYPos = -PADDING
 
-    -- Title (always visible)
-    local title = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", 0, headerYPos)
-    title:SetText("GoldPH")
+    -- Title (always visible) - compact "ph" for horizontal layout
+    local title = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOPLEFT", PADDING, headerYPos)
+    title:SetText("ph")
+    title:SetTextColor(1.0, 0.82, 0.0)  -- Gold color
     hudFrame.title = title
 
-    -- Header line (gold + time) - split into two FontStrings for different colors
-    -- Container frame to center both elements together
-    local headerContainer = CreateFrame("Frame", nil, hudFrame)
-    headerContainer:SetPoint("TOP", title, "BOTTOM", 0, -4)
-    headerContainer:SetSize(FRAME_WIDTH, 14)  -- Height for one line
-    hudFrame.headerContainer = headerContainer
-
-    -- Gold portion (default color)
-    local headerGold = headerContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    headerGold:SetPoint("RIGHT", headerContainer, "CENTER", -6, 0)  -- Right side of center with spacing before separator
-    headerGold:SetJustifyH("RIGHT")
-    headerGold:SetText("0g")
-    hudFrame.headerGold = headerGold
-
-    -- Separator with spaces on both sides
-    local headerSep = headerContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    headerSep:SetPoint("CENTER", headerContainer, "CENTER", 0, 0)
-    headerSep:SetText(" | ")  -- Space on both sides of pipe
-    headerSep:SetTextColor(0.7, 0.7, 0.7)  -- Gray separator
-    hudFrame.headerSep = headerSep
-
-    -- Timer portion (different color - lighter/muted)
-    local headerTimer = headerContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    headerTimer:SetPoint("LEFT", headerContainer, "CENTER", 6, 0)  -- Left side of center with spacing after separator
+    -- Timer (always visible, next to title)
+    local headerTimer = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    headerTimer:SetPoint("LEFT", title, "RIGHT", 6, 0)
     headerTimer:SetJustifyH("LEFT")
     headerTimer:SetTextColor(0.8, 0.8, 0.8)  -- Lighter gray for timer
     headerTimer:SetText("0m")
     hudFrame.headerTimer = headerTimer
 
+    -- Header container (for backward compatibility, positioned below title row for expanded state)
+    local headerContainer = CreateFrame("Frame", nil, hudFrame)
+    headerContainer:SetPoint("TOP", title, "BOTTOM", 0, -4)
+    headerContainer:SetSize(FRAME_WIDTH, 14)  -- Height for one line
+    hudFrame.headerContainer = headerContainer
+
+    -- Gold portion (for expanded state)
+    local headerGold = headerContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    headerGold:SetPoint("RIGHT", headerContainer, "CENTER", -6, 0)
+    headerGold:SetJustifyH("RIGHT")
+    headerGold:SetText("0g")
+    hudFrame.headerGold = headerGold
+
+    -- Separator (for expanded state)
+    local headerSep = headerContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    headerSep:SetPoint("CENTER", headerContainer, "CENTER", 0, 0)
+    headerSep:SetText(" | ")
+    headerSep:SetTextColor(0.7, 0.7, 0.7)
+    hudFrame.headerSep = headerSep
+
+    -- Timer duplicate for expanded state (keep for compatibility)
+    local headerTimer2 = headerContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    headerTimer2:SetPoint("LEFT", headerContainer, "CENTER", 6, 0)
+    headerTimer2:SetJustifyH("LEFT")
+    headerTimer2:SetTextColor(0.8, 0.8, 0.8)
+    headerTimer2:SetText("0m")
+    hudFrame.headerTimer2 = headerTimer2
+
     --------------------------------------------------
     -- Micro-bar metric tiles (for collapsed state)
     --------------------------------------------------
-    local tileWidth = 56
-    local tileHeight = 50
+    local tileWidth = 52
+    local tileHeight = 42
     local colorKeys = { gold = "GOLD", xp = "XP", rep = "REP", honor = "HONOR" }
 
     for metricKey, state in pairs(metricStates) do
@@ -346,24 +365,24 @@ function GoldPH_HUD:Initialize()
         tile:SetSize(tileWidth, tileHeight)
         state.tile = tile
 
-        -- Icon
+        -- Icon (smaller, positioned at top)
         local icon = tile:CreateTexture(nil, "ARTWORK")
-        icon:SetSize(16, 16)
-        icon:SetPoint("TOP", tile, "TOP", 0, 0)
+        icon:SetSize(14, 14)
+        icon:SetPoint("TOP", tile, "TOP", 0, -2)
         icon:SetTexture(METRIC_ICONS[metricKey])
         state.icon = icon
 
-        -- Rate text
+        -- Rate text (tighter spacing)
         local rateText = tile:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        rateText:SetPoint("TOP", icon, "BOTTOM", 0, -2)
+        rateText:SetPoint("TOP", icon, "BOTTOM", 0, -1)
         rateText:SetJustifyH("CENTER")
         rateText:SetText("0/h")
         state.valueText = rateText
 
-        -- Micro-bar background
+        -- Micro-bar background (tighter spacing)
         local barBg = CreateFrame("Frame", nil, tile, "BackdropTemplate")
         barBg:SetSize(tileWidth - 4, 6)
-        barBg:SetPoint("TOP", rateText, "BOTTOM", 0, -2)
+        barBg:SetPoint("TOP", rateText, "BOTTOM", 0, -1)
         barBg:SetBackdrop({
             bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
             tile = true,
@@ -636,14 +655,20 @@ function GoldPH_HUD:Update()
         end
     end
 
-    -- Header line (gold + time) - timer only; when paused use pronounced color (no extra text)
-    hudFrame.headerGold:SetText(FormatAccounting(metrics.totalValue))
-    hudFrame.headerTimer:SetText(GoldPH_SessionManager:FormatDuration(metrics.durationSec))
-    if isPaused then
-        hudFrame.headerTimer:SetTextColor(1, 0.45, 0.2)  -- Strong orange/amber when paused
-    else
-        hudFrame.headerTimer:SetTextColor(0.8, 0.8, 0.8)  -- Normal
+    -- Update timers (both collapsed and expanded versions)
+    local timerText = GoldPH_SessionManager:FormatDuration(metrics.durationSec)
+    local timerColor = isPaused and {1, 0.45, 0.2} or {0.8, 0.8, 0.8}
+
+    hudFrame.headerTimer:SetText(timerText)
+    hudFrame.headerTimer:SetTextColor(timerColor[1], timerColor[2], timerColor[3])
+
+    if hudFrame.headerTimer2 then
+        hudFrame.headerTimer2:SetText(timerText)
+        hudFrame.headerTimer2:SetTextColor(timerColor[1], timerColor[2], timerColor[3])
     end
+
+    -- Update gold in expanded header
+    hudFrame.headerGold:SetText(FormatAccounting(metrics.totalValue))
 
     -- Update micro-bars if collapsed and enabled
     local cfg = GoldPH_DB.settings.microBars
@@ -789,7 +814,15 @@ function GoldPH_HUD:ApplyMinimizeState()
         hudFrame.minMaxBtn:SetPushedTexture("Interface\\Buttons\\UI-MinusButton-Down")
     end
 
-    -- Header (title + headerLine) always visible in both states
+    -- Header: title always visible; gold | timer line only when expanded (collapsed uses micro-bar icons)
+    if hudFrame.headerContainer then
+        if isMinimized then
+            hudFrame.headerContainer:Hide()
+        else
+            hudFrame.headerContainer:Show()
+        end
+    end
+
     -- Only toggle expanded content below header
     local expandedElements = {
         hudFrame.sep1, hudFrame.sep2,
@@ -824,16 +857,20 @@ function GoldPH_HUD:ApplyMinimizeState()
         end
     end
 
-    -- Adjust frame height while maintaining top position
-    -- Store current top position before changing height
+    -- Adjust frame size while maintaining top position
+    -- Store current top position before changing size
     local point, relativeTo, relativePoint, xOfs, yOfs = hudFrame:GetPoint()
-    
+
     if isMinimized then
         hudFrame:SetHeight(FRAME_HEIGHT_MINI)
+        -- Wider frame for horizontal layout (accommodate title + timer + 4 tiles)
+        -- 20 (title) + 40 (timer) + 4*52 (tiles) + 3*6 (tile spacing) + 18 (gaps) + 24 (padding) = ~320
+        hudFrame:SetWidth(320)
     else
         hudFrame:SetHeight(FRAME_HEIGHT)
+        hudFrame:SetWidth(FRAME_WIDTH)
     end
-    
+
     -- Restore top position to prevent jumping
     hudFrame:ClearAllPoints()
     hudFrame:SetPoint(point, relativeTo, relativePoint, xOfs, yOfs)
