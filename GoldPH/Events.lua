@@ -4,6 +4,9 @@
     Handles WoW events and routes them to accounting actions.
 ]]
 
+-- luacheck: globals GetMaxPlayerLevel UnitLevel UnitXP UnitXPMax GetNumFactions GetFactionInfo GoldPH_DB_Account
+-- luacheck: ignore delta
+
 local GoldPH_Events = {}
 
 --------------------------------------------------
@@ -187,7 +190,7 @@ function GoldPH_Events:OnLootedCoin(message)
             end
             session.ledger.balances["Income:Pickpocket:Coin"] = session.ledger.balances["Income:Pickpocket:Coin"] + copper
 
-            if GoldPH_DB.debug.verbose then
+            if GoldPH_DB_Account.debug.verbose then
                 print(string.format("[GoldPH] Pickpocket coin: %s", GoldPH_Ledger:FormatMoney(copper)))
             end
         end
@@ -201,18 +204,18 @@ function GoldPH_Events:OnLootedCoin(message)
             end
             session.ledger.balances["Income:Pickpocket:FromLockbox:Coin"] = session.ledger.balances["Income:Pickpocket:FromLockbox:Coin"] + copper
 
-            if GoldPH_DB.debug.verbose then
+            if GoldPH_DB_Account.debug.verbose then
                 print(string.format("[GoldPH] Lockbox coin: %s", GoldPH_Ledger:FormatMoney(copper)))
             end
         end
 
         -- Debug logging
-        if GoldPH_DB.debug.verbose then
+        if GoldPH_DB_Account.debug.verbose then
             print(string.format("[GoldPH] Looted: %s", GoldPH_Ledger:FormatMoney(copper)))
         end
 
         -- Run invariants if debug mode enabled
-        if GoldPH_DB.debug.enabled then
+        if GoldPH_DB_Account.debug.enabled then
             GoldPH_Debug:ValidateInvariants(session)
         end
 
@@ -280,7 +283,7 @@ function GoldPH_Events:OnLootedItem(message)
     if not itemName then
         -- Item not in cache yet, defer processing
         -- TODO Phase 3+: Queue for retry
-        if GoldPH_DB.debug.verbose then
+        if GoldPH_DB_Account.debug.verbose then
             print(string.format("[GoldPH] Item cache miss: itemID=%d, will retry", itemID))
         end
         return
@@ -324,7 +327,7 @@ function GoldPH_Events:OnLootedItem(message)
         if isPickpocket then
             session.pickpocket.lockboxesLooted = session.pickpocket.lockboxesLooted + count
 
-            if GoldPH_DB.debug.verbose then
+            if GoldPH_DB_Account.debug.verbose then
                 print(string.format("[GoldPH] Pickpocket lockbox looted: %s x%d", itemName, count))
             end
         end
@@ -353,7 +356,7 @@ function GoldPH_Events:OnLootedItem(message)
         end
         session.ledger.balances["Income:Pickpocket:Items"] = session.ledger.balances["Income:Pickpocket:Items"] + expectedTotal
 
-        if GoldPH_DB.debug.verbose then
+        if GoldPH_DB_Account.debug.verbose then
             print(string.format("[GoldPH] Pickpocket item: %s x%d (%s)", itemName, count, GoldPH_Ledger:FormatMoney(expectedTotal)))
         end
     end
@@ -366,19 +369,19 @@ function GoldPH_Events:OnLootedItem(message)
         end
         session.ledger.balances["Income:Pickpocket:FromLockbox:Items"] = session.ledger.balances["Income:Pickpocket:FromLockbox:Items"] + expectedTotal
 
-        if GoldPH_DB.debug.verbose then
+        if GoldPH_DB_Account.debug.verbose then
             print(string.format("[GoldPH] Lockbox item: %s x%d (%s)", itemName, count, GoldPH_Ledger:FormatMoney(expectedTotal)))
         end
     end
 
     -- Debug logging
-    if GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account.debug.verbose then
         print(string.format("[GoldPH] Looted: %s x%d (%s, %s each)",
             itemName, count, bucket, GoldPH_Ledger:FormatMoney(expectedEach)))
     end
 
     -- Run invariants if debug mode enabled
-    if GoldPH_DB.debug.enabled then
+    if GoldPH_DB_Account.debug.enabled then
         GoldPH_Debug:ValidateInvariants(session)
     end
 
@@ -449,7 +452,7 @@ function GoldPH_Events:InjectLootedCoin(copper)
     print(string.format("[GoldPH Test] Injected loot: %s", GoldPH_Ledger:FormatMoney(copper)))
 
     -- Run invariants if debug mode enabled
-    if GoldPH_DB.debug.enabled then
+    if GoldPH_DB_Account.debug.enabled then
         GoldPH_Debug:ValidateInvariants(session)
     end
 
@@ -471,7 +474,7 @@ function GoldPH_Events:OnMerchantShow()
     state.bagSnapshot = self:SnapshotBags()
     state.lastMoneyCheck = GetMoney()
 
-    if GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account.debug.verbose then
         print("[GoldPH] Merchant window opened")
     end
 end
@@ -484,7 +487,7 @@ function GoldPH_Events:OnMerchantClosed()
     state.bagSnapshot = nil
     state.lastMoneyCheck = 0
 
-    if GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account.debug.verbose then
         print("[GoldPH] Merchant window closed")
     end
 end
@@ -499,7 +502,7 @@ function GoldPH_Events:OnPlayerMoney()
     local currentMoney = GetMoney()
     
     -- Debug: Always log money changes when taxi is open
-    if state.taxiOpen and GoldPH_DB.debug.verbose then
+    if state.taxiOpen and GoldPH_DB_Account.debug.verbose then
         print(string.format("[GoldPH] PLAYER_MONEY: taxiOpen=%s, moneyAtTaxiOpen=%s, currentMoney=%s", 
             tostring(state.taxiOpen), 
             state.moneyAtTaxiOpen and GoldPH_Ledger:FormatMoney(state.moneyAtTaxiOpen) or "nil",
@@ -526,14 +529,14 @@ function GoldPH_Events:OnTaxiMapOpened()
     state.moneyAtTaxiOpen = GetMoney()
     state.taxiCostProcessed = false  -- Track if we've already recorded the cost
 
-    if GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account.debug.verbose then
         print("[GoldPH] TAXIMAP_OPENED: money=" .. GoldPH_Ledger:FormatMoney(state.moneyAtTaxiOpen))
     end
 end
 
 -- Handle TAXIMAP_CLOSED event
 function GoldPH_Events:OnTaxiMapClosed()
-    if GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account.debug.verbose then
         print(string.format("[GoldPH] TAXIMAP_CLOSED: taxiOpen=%s, moneyAtTaxiOpen=%s, costProcessed=%s",
             tostring(state.taxiOpen),
             state.moneyAtTaxiOpen and GoldPH_Ledger:FormatMoney(state.moneyAtTaxiOpen) or "nil",
@@ -553,12 +556,12 @@ function GoldPH_Events:OnTaxiMapClosed()
                 -- Post double-entry: Dr Expense:Travel, Cr Assets:Cash
                 GoldPH_Ledger:Post(session, "Expense:Travel", "Assets:Cash", cost)
 
-                if GoldPH_DB.debug.verbose then
+                if GoldPH_DB_Account.debug.verbose then
                     print(string.format("[GoldPH] Flight cost (fallback on TAXIMAP_CLOSED): %s", GoldPH_Ledger:FormatMoney(cost)))
                 end
 
                 -- Run invariants if debug mode enabled
-                if GoldPH_DB.debug.enabled then
+                if GoldPH_DB_Account.debug.enabled then
                     GoldPH_Debug:ValidateInvariants(session)
                 end
 
@@ -598,13 +601,13 @@ function GoldPH_Events:OnQuestTurnedIn(questID, xpReward, moneyReward)
     -- Post double-entry: Dr Assets:Cash, Cr Income:Quest
     GoldPH_Ledger:Post(session, "Assets:Cash", "Income:Quest", moneyReward)
 
-    if GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account.debug.verbose then
         print(string.format("[GoldPH] Quest reward: %s (Quest ID: %d)", 
             GoldPH_Ledger:FormatMoney(moneyReward), questID))
     end
 
     -- Run invariants if debug mode enabled
-    if GoldPH_DB.debug.enabled then
+    if GoldPH_DB_Account.debug.enabled then
         GoldPH_Debug:ValidateInvariants(session)
     end
 
@@ -638,7 +641,7 @@ function GoldPH_Events:OnUnitSpellcastSucceeded(unitTarget, castGUID, spellID)
         -- Set attribution window: 2 seconds after cast
         state.pickpocketActiveUntil = GetTime() + 2.0
 
-        if GoldPH_DB.debug.verbose then
+        if GoldPH_DB_Account.debug.verbose then
             print(string.format("[GoldPH] Pick Pocket detected, attribution window: %.1f seconds", 2.0))
         end
     end
@@ -724,12 +727,12 @@ function GoldPH_Events:RecordTaxiCost(session, cost, source)
     -- Post double-entry: Dr Expense:Travel, Cr Assets:Cash
     GoldPH_Ledger:Post(session, "Expense:Travel", "Assets:Cash", cost)
 
-    if GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account.debug.verbose then
         print(string.format("[GoldPH] Flight cost recorded (%s): %s", source, GoldPH_Ledger:FormatMoney(cost)))
     end
 
     -- Run invariants if debug mode enabled
-    if GoldPH_DB.debug.enabled then
+    if GoldPH_DB_Account.debug.enabled then
         GoldPH_Debug:ValidateInvariants(session)
     end
 
@@ -767,12 +770,12 @@ function GoldPH_Events:OnRepairAll(guildBankRepair)
         GoldPH_Ledger:Post(session, "Expense:Repairs", "Assets:Cash", repairCost)
 
         -- Debug logging
-        if GoldPH_DB.debug.verbose then
+        if GoldPH_DB_Account.debug.verbose then
             print(string.format("[GoldPH] Repair cost: %s", GoldPH_Ledger:FormatMoney(repairCost)))
         end
 
         -- Run invariants if debug mode enabled
-        if GoldPH_DB.debug.enabled then
+        if GoldPH_DB_Account.debug.enabled then
             GoldPH_Debug:ValidateInvariants(session)
         end
 
@@ -799,7 +802,7 @@ function GoldPH_Events:InjectRepair(copper)
     print(string.format("[GoldPH Test] Injected repair: %s", GoldPH_Ledger:FormatMoney(copper)))
 
     -- Run invariants if debug mode enabled
-    if GoldPH_DB.debug.enabled then
+    if GoldPH_DB_Account.debug.enabled then
         GoldPH_Debug:ValidateInvariants(session)
     end
 
@@ -916,7 +919,7 @@ function GoldPH_Events:OnBagUpdateLockboxCheck(session)
         state.openingLockboxUntil = GetTime() + 3.0
         state.openingLockboxItemID = openedItemID
 
-        if GoldPH_DB.debug.verbose then
+        if GoldPH_DB_Account.debug.verbose then
             local name = openedItemID and (GetItemInfo(openedItemID) or "?") or "?"
             print(string.format("[GoldPH] Lockbox opened (BAG_UPDATE): %s x%d, attribution window: %.1f seconds",
                 name, opened, 3.0))
@@ -1040,7 +1043,7 @@ function GoldPH_Events:OnUseContainerItemForLockbox(bag, slot)
         state.openingLockboxItemID = itemID
         session.pickpocket.lockboxesOpened = session.pickpocket.lockboxesOpened + 1
 
-        if GoldPH_DB.debug.verbose then
+        if GoldPH_DB_Account.debug.verbose then
             print(string.format("[GoldPH] Lockbox opened: %s (ID: %d), attribution window: %.1f seconds",
                 itemName, itemID, 3.0))
         end
@@ -1117,7 +1120,7 @@ function GoldPH_Events:ProcessVendorSale(session, itemID, itemName, count, vendo
     end
 
     -- Debug logging
-    if GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account.debug.verbose then
         local totalHeldValue = 0
         for _, val in pairs(bucketValues) do
             totalHeldValue = totalHeldValue + val
@@ -1134,7 +1137,7 @@ function GoldPH_Events:ProcessVendorSale(session, itemID, itemName, count, vendo
     end
 
     -- Run invariants if debug mode enabled
-    if GoldPH_DB.debug.enabled then
+    if GoldPH_DB_Account.debug.enabled then
         GoldPH_Debug:ValidateInvariants(session)
     end
 
@@ -1195,7 +1198,7 @@ function GoldPH_Events:InjectLootItem(itemID, count)
         itemName, count, bucket, GoldPH_Ledger:FormatMoney(expectedEach)))
 
     -- Run invariants if debug mode enabled
-    if GoldPH_DB.debug.enabled then
+    if GoldPH_DB_Account.debug.enabled then
         GoldPH_Debug:ValidateInvariants(session)
     end
 
@@ -1272,7 +1275,7 @@ function GoldPH_Events:InitializeRepCache()
         end
     end
 
-    if GoldPH_DB and GoldPH_DB.debug and GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account and GoldPH_DB_Account.debug and GoldPH_DB_Account.debug.verbose then
         local count = 0
         for _ in pairs(state.repCache) do count = count + 1 end
         print(string.format("[GoldPH] Initialized reputation cache with %d factions", count))
@@ -1333,7 +1336,7 @@ function GoldPH_Events:OnPlayerXPUpdate()
     state.xpLast = newXP
     state.xpMaxLast = newXPMax
 
-    if GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account.debug.verbose then
         print(string.format("[GoldPH] XP gained: %d (total: %d)", delta, session.metrics.xp.gained))
     end
 
@@ -1382,7 +1385,7 @@ function GoldPH_Events:OnUpdateFaction()
                 end
                 session.metrics.rep.byFaction[name] = session.metrics.rep.byFaction[name] + delta
 
-                if GoldPH_DB.debug.verbose then
+                if GoldPH_DB_Account.debug.verbose then
                     print(string.format("[GoldPH] Rep gained: %s +%d", name, delta))
                 end
             end
@@ -1437,7 +1440,7 @@ function GoldPH_Events:OnHonorGain(message)
             session.metrics.honor.kills = session.metrics.honor.kills + 1
         end
 
-        if GoldPH_DB.debug.verbose then
+        if GoldPH_DB_Account.debug.verbose then
             print(string.format("[GoldPH] Honor gained: %d (total: %d, HKs: %d)",
                 amount, session.metrics.honor.gained, session.metrics.honor.kills))
         end

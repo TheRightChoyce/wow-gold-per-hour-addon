@@ -6,6 +6,8 @@
     Phase 4: Add FIFO consumption for vendor sales
 ]]
 
+-- luacheck: globals GoldPH_DB_Account
+
 local GoldPH_Holdings = {}
 
 --------------------------------------------------
@@ -49,7 +51,7 @@ function GoldPH_Holdings:AddLot(session, itemID, count, expectedEach, bucket)
     session.holdings[itemID].count = session.holdings[itemID].count + count
 
     -- Debug logging
-    if GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account.debug.verbose then
         print(string.format("[GoldPH Holdings] Added lot: itemID=%d, count=%d, expectedEach=%d, bucket=%s",
             itemID, count, expectedEach, bucket))
     end
@@ -142,7 +144,7 @@ function GoldPH_Holdings:ConsumeFIFO(session, itemID, count)
     end
 
     -- Debug logging
-    if GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account.debug.verbose then
         for bucket, value in pairs(bucketValues) do
             print(string.format("[GoldPH Holdings] Consumed FIFO: itemID=%d, bucket=%s, value=%d",
                 itemID, bucket, value))

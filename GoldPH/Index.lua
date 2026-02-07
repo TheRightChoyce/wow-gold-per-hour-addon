@@ -5,6 +5,8 @@
     of historical sessions. Designed for scalability (100+ sessions).
 ]]
 
+-- luacheck: globals GoldPH_DB_Account GetRealmName UnitFactionGroup UnitName
+
 local GoldPH_Index = {
     stale = true,
     lastBuild = 0,
@@ -96,10 +98,10 @@ function GoldPH_Index:Build()
     local zoneTotals = {}  -- [zone] -> {totalPerHourSum, count, bestPerHour, bestSessionId, nodesSum, nodesCount, bestNodes}
 
     -- Scan all sessions (skip active session)
-    for sessionId, session in pairs(GoldPH_DB.sessions) do
+    for sessionId, session in pairs(GoldPH_DB_Account.sessions) do
         -- Skip if this is the active session (should not be in history)
         local shouldProcess = true
-        if GoldPH_DB.activeSession and GoldPH_DB.activeSession.id == sessionId then
+        if GoldPH_DB_Account.activeSession and GoldPH_DB_Account.activeSession.id == sessionId then
             shouldProcess = false
         end
 
@@ -113,11 +115,11 @@ function GoldPH_Index:Build()
         end
 
         if shouldProcess then
-            -- Build character key
+            -- Build character key (use session metadata for cross-character filter; fallback for old sessions)
             local charKey = GetCharKey(
-                GoldPH_DB.meta.character,
-                GoldPH_DB.meta.realm,
-                GoldPH_DB.meta.faction
+                session.character or UnitName("player") or "Unknown",
+                session.realm or GetRealmName() or "Unknown",
+                session.faction or UnitFactionGroup("player") or "Unknown"
             )
 
             -- Extract flags
@@ -401,7 +403,7 @@ function GoldPH_Index:Build()
     self.lastBuild = GetTime()
 
     local buildTime = GetTime() - startTime
-    if GoldPH_DB and GoldPH_DB.debug and GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account and GoldPH_DB_Account.debug and GoldPH_DB_Account.debug.verbose then
         print(string.format("[GoldPH Index] Built index with %d sessions in %.3fs", #self.sessions, buildTime))
     end
 end
