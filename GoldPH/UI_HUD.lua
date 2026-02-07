@@ -238,12 +238,23 @@ function GoldPH_HUD:Initialize()
     pauseBtn:SetNormalTexture("Interface\\Buttons\\UI-Button-Up")
     pauseBtn:SetPushedTexture("Interface\\Buttons\\UI-Button-Down")
     pauseBtn:SetHighlightTexture("Interface\\Buttons\\UI-PlusButton-Hilight", "ADD")
-    -- Symbol on top: two vertical lines (pause) or right arrow (play); updated in Update()
-    local pauseBtnSymbol = pauseBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    pauseBtnSymbol:SetPoint("CENTER", 0, 0)
-    pauseBtnSymbol:SetText("||")  -- Pause: two vertical lines
-    pauseBtnSymbol:SetTextColor(1, 1, 1)
-    hudFrame.pauseBtnSymbol = pauseBtnSymbol
+    -- Symbol on top: two vertical bars (pause) or right arrow (play); updated in Update()
+    local pauseBarLeft = pauseBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    pauseBarLeft:SetPoint("CENTER", -2, 0)
+    pauseBarLeft:SetText("|")
+    pauseBarLeft:SetTextColor(1, 1, 1)
+    local pauseBarRight = pauseBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    pauseBarRight:SetPoint("CENTER", 2, 0)
+    pauseBarRight:SetText("|")
+    pauseBarRight:SetTextColor(1, 1, 1)
+    local pausePlayArrow = pauseBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    pausePlayArrow:SetPoint("CENTER", 0, 0)
+    pausePlayArrow:SetText(">")
+    pausePlayArrow:SetTextColor(1, 1, 1)
+    pausePlayArrow:Hide()
+    hudFrame.pauseBarLeft = pauseBarLeft
+    hudFrame.pauseBarRight = pauseBarRight
+    hudFrame.pausePlayArrow = pausePlayArrow
     pauseBtn:SetScript("OnClick", function()
         local session = GoldPH_SessionManager:GetActiveSession()
         if not session then return end
@@ -611,9 +622,17 @@ function GoldPH_HUD:Update()
     local metrics = GoldPH_SessionManager:GetMetrics(session)
     local isPaused = GoldPH_SessionManager:IsPaused(session)
 
-    -- Pause button symbol: two vertical lines (pause) when running, right arrow (play) when paused
-    if hudFrame.pauseBtnSymbol then
-        hudFrame.pauseBtnSymbol:SetText(isPaused and ">" or "||")
+    -- Pause button: two vertical bars (||) when running, right arrow (>) when paused
+    if hudFrame.pauseBarLeft and hudFrame.pauseBarRight and hudFrame.pausePlayArrow then
+        if isPaused then
+            hudFrame.pauseBarLeft:Hide()
+            hudFrame.pauseBarRight:Hide()
+            hudFrame.pausePlayArrow:Show()
+        else
+            hudFrame.pauseBarLeft:Show()
+            hudFrame.pauseBarRight:Show()
+            hudFrame.pausePlayArrow:Hide()
+        end
     end
 
     -- Header line (gold + time) - timer only; when paused use pronounced color (no extra text)
