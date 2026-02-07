@@ -68,6 +68,33 @@ local function InitializeSavedVariables()
         }
 
         print("[GoldPH] Initialized for " .. GoldPH_DB.meta.character .. " on " .. GoldPH_DB.meta.realm)
+    else
+        -- TODO: Remove this migration once no longer needed (only for pre-microBars SavedVariables).
+        -- Ensure microBars exists for existing SavedVariables (migration)
+        if GoldPH_DB.settings and GoldPH_DB.settings.microBars == nil then
+            GoldPH_DB.settings.microBars = {
+                enabled = true,
+                height = 6,
+                updateInterval = 0.25,
+                smoothingAlpha = 0.25,
+                normalization = {
+                    mode = "sessionPeak",
+                    peakDecay = { enabled = false, ratePerMin = 0.03 },
+                },
+                minRefFloors = {
+                    gold = 50000,
+                    xp = 5000,
+                    rep = 50,
+                    honor = 100,
+                },
+                updateThresholds = {
+                    gold = 1000,
+                    xp = 100,
+                    rep = 5,
+                    honor = 10,
+                },
+            }
+        end
     end
 end
 

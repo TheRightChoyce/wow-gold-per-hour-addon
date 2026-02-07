@@ -16,11 +16,13 @@ local FRAME_WIDTH = 180
 -- Base expanded height; actual height is dynamically adjusted based on visible rows
 local FRAME_HEIGHT = 180
 -- Calculate minimized height for horizontal bar:
--- Top padding: 8px
--- Single horizontal bar: ~48px (icon 16px + text + bar 6px + spacing)
--- Bottom padding: 8px
--- Total: 8 + 48 + 8 = 64px
-local FRAME_HEIGHT_MINI = 64  -- Minimized height with horizontal micro-bars
+-- Top padding: 12px (PADDING)
+-- Title row: ~14px (12px font + line height)
+-- Gap between title and tiles: 6px
+-- Tile height: 18px (icon/text row 12px + 2px gap + bar 4px)
+-- Bottom padding: 4px (reduced for compact layout)
+-- Total: 12 + 14 + 6 + 18 + 4 = 54px
+local FRAME_HEIGHT_MINI = 54  -- Minimized height with horizontal micro-bars
 local LABEL_X = PADDING
 local VALUE_X = FRAME_WIDTH - PADDING  -- Right edge for right-aligned values
 local ROW_HEIGHT = 14
@@ -59,8 +61,11 @@ local METRIC_ICONS = {
     gold = "Interface\\MoneyFrame\\UI-GoldIcon",
     xp = "Interface\\Icons\\INV_Misc_Book_11",  -- Book icon for learning/XP
     rep = "Interface\\Icons\\INV_Misc_Ribbon_01",  -- Ribbon for reputation
-    honor = "Interface\\Icons\\Ability_PVP_Banner_Horde",  -- Banner for honor (faction-neutral)
+    honor = "Interface\\Icons\\inv_bannerpvp_02",  -- PvP banner (exists in Classic, wowhead 132486)
 }
+
+-- Color keys mapping for micro-bar colors
+local colorKeys = { gold = "GOLD", xp = "XP", rep = "REP", honor = "HONOR" }
 
 -- Runtime state for micro-bars (not persisted)
 local metricStates = {
@@ -69,6 +74,9 @@ local metricStates = {
     rep = { key = "rep", displayRate = 0, peak = 0, lastUpdatedText = "", tile = nil, bar = nil, valueText = nil, icon = nil },
     honor = { key = "honor", displayRate = 0, peak = 0, lastUpdatedText = "", tile = nil, bar = nil, valueText = nil, icon = nil },
 }
+
+-- Fixed order for metric display: gold, rep, xp, honor
+local METRIC_ORDER = { "gold", "rep", "xp", "honor" }
 
 local lastUpdateTime = 0
 
@@ -101,62 +109,75 @@ local function DecayPeak(currentPeak, currentRate, minutesSinceLastTick, cfg)
     return math.max(decayedPeak, currentRate)
 end
 
--- Format rate for micro-bar display (compact)
+-- Format rate for micro-bar display (ultra-compact, no /h suffix to save space)
 local function FormatRateForMicroBar(metricKey, rate)
     if metricKey == "gold" then
         -- Inline FormatAccountingShort logic for gold
         if not rate or rate == 0 then
-            return "0g/h"
+            return "0g"
         end
         local isNegative = rate < 0
         local formatted = GoldPH_Ledger:FormatMoneyShort(math.abs(rate))
         if isNegative and formatted ~= "0g" then
-            return "(" .. formatted .. ")/h"
+            return "(" .. formatted .. ")"
         else
-            return formatted .. "/h"
+            return formatted
         end
     elseif metricKey == "xp" then
         if rate >= 1000 then
-            return string.format("%.1fk/h", rate / 1000)
+            return string.format("%.1fk", rate / 1000)
         else
-            return string.format("%d/h", rate)
+            return string.format("%d", rate)
         end
     elseif metricKey == "rep" then
-        return string.format("%d/h", rate)
+        return string.format("%d", rate)
     elseif metricKey == "honor" then
         if rate >= 1000 then
-            return string.format("%.1fk/h", rate / 1000)
+            return string.format("%.1fk", rate / 1000)
         else
-            return string.format("%d/h", rate)
+            return string.format("%d", rate)
         end
     end
 end
 
--- Reposition active tiles horizontally (after timer in collapsed, or below header in expanded)
-local function RepositionActiveTiles(activeTiles, isCollapsed)
-    local tileCount = #activeTiles
+-- Reposition tiles horizontally in fixed order (gold, rep, xp, honor)
+local function RepositionTiles(isCollapsed)
+    local tileWidth = 50
+    local tileSpacing = 14
+    local orderedTiles = {}
+    
+    -- Build ordered list of tiles (all tiles, in fixed order)
+    for _, metricKey in ipairs(METRIC_ORDER) do
+        local state = metricStates[metricKey]
+        if state and state.tile then
+            table.insert(orderedTiles, state)
+        end
+    end
+    
+    local tileCount = #orderedTiles
     if tileCount == 0 then return end
 
-    local tileWidth = 50
-    local tileSpacing = 6
-
     if isCollapsed then
-        -- Horizontal layout: position tiles to the right of timer
-        for i, state in ipairs(activeTiles) do
+        -- Horizontal layout: position tiles starting from left edge, below title row
+        -- Position tiles so they don't overflow the top border
+        for i, state in ipairs(orderedTiles) do
             state.tile:ClearAllPoints()
             if i == 1 then
-                -- First tile: position to right of timer (compact spacing)
-                state.tile:SetPoint("LEFT", hudFrame.headerTimer, "RIGHT", 10, 0)
+                -- First tile: start at left edge (PADDING), below title row
+                -- Use TOP anchor with negative offset to position below timer
+                state.tile:SetPoint("TOP", hudFrame.headerTimer, "BOTTOM", 0, -6)
+                state.tile:SetPoint("LEFT", hudFrame, "LEFT", PADDING, 0)
             else
-                -- Subsequent tiles: position to right of previous tile
-                state.tile:SetPoint("LEFT", activeTiles[i-1].tile, "RIGHT", tileSpacing, 0)
+                -- Subsequent tiles: position to right of previous tile, aligned at top
+                state.tile:SetPoint("TOP", orderedTiles[1].tile, "TOP", 0, 0)
+                state.tile:SetPoint("LEFT", orderedTiles[i-1].tile, "RIGHT", tileSpacing, 0)
             end
         end
     else
         -- Expanded layout: centered below header container
         local totalWidth = (tileCount * tileWidth) + ((tileCount - 1) * tileSpacing)
         local startX = -totalWidth / 2 + tileWidth / 2
-        for i, state in ipairs(activeTiles) do
+        for i, state in ipairs(orderedTiles) do
             local xOffset = startX + ((i - 1) * (tileWidth + tileSpacing))
             state.tile:ClearAllPoints()
             state.tile:SetPoint("TOP", hudFrame.headerContainer, "BOTTOM", xOffset, -8)
@@ -170,7 +191,10 @@ local function UpdateMicroBars(session, metrics)
     if not cfg then return end
 
     -- Skip if paused (freeze bars)
-    if GoldPH_SessionManager:IsPaused(session) then
+    local isPaused = GoldPH_SessionManager:IsPaused(session)
+    if isPaused then
+        -- When paused, keep current display but don't update
+        RepositionTiles(true)
         return
     end
 
@@ -179,58 +203,79 @@ local function UpdateMicroBars(session, metrics)
     local deltaMinutes = (now - lastUpdateTime) / 60
     lastUpdateTime = now
 
-    local activeTiles = {}
+    -- Update each metric in fixed order
+    for _, metricKey in ipairs(METRIC_ORDER) do
+        local state = metricStates[metricKey]
+        if state and state.tile then
+            local rawRate = 0
+            local isActive = false
 
-    -- Update each metric
-    for metricKey, state in pairs(metricStates) do
-        local rawRate = 0
-        local isActive = false
+            -- Extract raw rate from metrics
+            if metricKey == "gold" then
+                rawRate = metrics.totalPerHour
+                isActive = true  -- Gold is always active
+            elseif metricKey == "xp" then
+                rawRate = metrics.xpPerHour or 0
+                isActive = metrics.xpEnabled and rawRate > 0
+            elseif metricKey == "rep" then
+                rawRate = metrics.repPerHour or 0
+                isActive = metrics.repEnabled and rawRate > 0
+            elseif metricKey == "honor" then
+                rawRate = metrics.honorPerHour or 0
+                isActive = metrics.honorEnabled and rawRate > 0
+            end
 
-        -- Extract raw rate from metrics
-        if metricKey == "gold" then
-            rawRate = metrics.totalPerHour
-            isActive = true
-        elseif metricKey == "xp" then
-            rawRate = metrics.xpPerHour or 0
-            isActive = metrics.xpEnabled and rawRate > 0
-        elseif metricKey == "rep" then
-            rawRate = metrics.repPerHour or 0
-            isActive = metrics.repEnabled and rawRate > 0
-        elseif metricKey == "honor" then
-            rawRate = metrics.honorPerHour or 0
-            isActive = metrics.honorEnabled and rawRate > 0
-        end
-
-        if not isActive or not state.tile then
-            if state.tile then state.tile:Hide() end
-        else
+            -- Always show tiles, but gray out inactive ones
             state.tile:Show()
-            table.insert(activeTiles, state)
+            state.icon:Show()  -- Ensure icon is always visible
 
-            -- Apply smoothing
-            state.displayRate = SmoothRate(state.displayRate, rawRate, cfg.smoothingAlpha)
+            if isActive then
+                -- Active: normal colors and updates
+                -- Apply smoothing
+                state.displayRate = SmoothRate(state.displayRate, rawRate, cfg.smoothingAlpha)
 
-            -- Update peak (with optional decay)
-            state.peak = DecayPeak(state.peak, state.displayRate, deltaMinutes, cfg.normalization)
+                -- Update peak (with optional decay)
+                state.peak = DecayPeak(state.peak, state.displayRate, deltaMinutes, cfg.normalization)
 
-            -- Normalize for bar
-            local minFloor = cfg.minRefFloors[metricKey]
-            local normalized = NormalizeRate(state.displayRate, state.peak, minFloor)
+                -- Normalize for bar
+                local minFloor = cfg.minRefFloors[metricKey]
+                local normalized = NormalizeRate(state.displayRate, state.peak, minFloor)
 
-            -- Update bar fill
-            state.bar:SetValue(normalized)
+                -- Update bar fill
+                state.bar:SetValue(normalized)
 
-            -- Update text (avoid string churn)
-            local newText = FormatRateForMicroBar(metricKey, state.displayRate)
-            if state.lastUpdatedText ~= newText then
-                state.valueText:SetText(newText)
-                state.lastUpdatedText = newText
+                -- Update text (avoid string churn)
+                local newText = FormatRateForMicroBar(metricKey, state.displayRate)
+                if state.lastUpdatedText ~= newText then
+                    state.valueText:SetText(newText)
+                    state.lastUpdatedText = newText
+                end
+
+                -- Set active colors (full opacity)
+                state.icon:SetVertexColor(1, 1, 1)  -- Full color, no tinting
+                state.icon:SetAlpha(1.0)  -- Full opacity
+                state.valueText:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
+                local colorKey = colorKeys[metricKey]
+                local fillColor = MICROBAR_COLORS[colorKey].fill
+                state.bar:GetStatusBarTexture():SetVertexColor(fillColor[1], fillColor[2], fillColor[3], fillColor[4])
+            else
+                -- Inactive: gray out (reduced opacity)
+                state.bar:SetValue(0)  -- Empty bar
+                state.valueText:SetText("0")
+                
+                -- Gray out icon (keep visible but muted - use gray tint with reduced opacity)
+                state.icon:SetVertexColor(0.6, 0.6, 0.6)  -- Gray tint
+                state.icon:SetAlpha(0.7)  -- Reduced opacity but still visible
+                state.icon:Show()  -- Ensure icon is always visible
+                state.valueText:SetTextColor(0.4, 0.4, 0.4, 0.5)
+                -- Gray out bar fill
+                state.bar:GetStatusBarTexture():SetVertexColor(0.3, 0.3, 0.3, 0.3)
             end
         end
     end
 
-    -- Reposition tiles horizontally (collapsed layout)
-    RepositionActiveTiles(activeTiles, true)
+    -- Reposition tiles horizontally in fixed order (collapsed layout)
+    RepositionTiles(true)
 end
 
 -- Initialize HUD
@@ -337,6 +382,8 @@ function GoldPH_HUD:Initialize()
     title:SetPoint("TOPLEFT", PADDING, headerYPos)
     title:SetText("pH")
     title:SetTextColor(PH_TEXT_PRIMARY[1], PH_TEXT_PRIMARY[2], PH_TEXT_PRIMARY[3])  -- pH brand primary text
+    -- Apply Friz Quadrata font per brand brief (WoW's built-in font)
+    title:SetFont("Fonts\\FRIZQT__.TTF", 12, "")
     hudFrame.title = title
 
     -- Timer (always visible, next to title)
@@ -379,8 +426,8 @@ function GoldPH_HUD:Initialize()
     -- Micro-bar metric tiles (for collapsed state - single horizontal line)
     --------------------------------------------------
     local tileWidth = 50
-    local tileHeight = 38
-    local colorKeys = { gold = "GOLD", xp = "XP", rep = "REP", honor = "HONOR" }
+    -- Tile height: 18px (icon/text row 12px + 2px gap + bar 4px)
+    local tileHeight = 18
 
     for metricKey, state in pairs(metricStates) do
         -- Create tile container
@@ -388,25 +435,28 @@ function GoldPH_HUD:Initialize()
         tile:SetSize(tileWidth, tileHeight)
         state.tile = tile
 
-        -- Icon (compact, positioned at top left)
+        -- Icon (compact, positioned at top left) - 12px for ultra-compact
         local icon = tile:CreateTexture(nil, "ARTWORK")
         icon:SetSize(12, 12)
-        icon:SetPoint("TOP", tile, "TOP", 0, -1)
+        icon:SetPoint("TOPLEFT", tile, "TOPLEFT", 0, 0)
         icon:SetTexture(METRIC_ICONS[metricKey])
         state.icon = icon
 
-        -- Rate text (pH brand muted color, compact)
+        -- Rate text (pH brand muted color, compact) - positioned after icon, top-aligned
         local rateText = tile:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        rateText:SetPoint("TOP", icon, "BOTTOM", 0, -1)
-        rateText:SetJustifyH("CENTER")
-        rateText:SetText("0/h")
+        rateText:SetPoint("LEFT", icon, "RIGHT", 2, 0)
+        rateText:SetPoint("TOP", tile, "TOP", 0, 0)
+        rateText:SetJustifyH("LEFT")
+        rateText:SetText("0")
         rateText:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
         state.valueText = rateText
 
-        -- Micro-bar background (pH brand dark background)
+        -- Micro-bar background (pH brand dark background) - full width below icon/text, 4px height
         local barBg = CreateFrame("Frame", nil, tile, "BackdropTemplate")
-        barBg:SetSize(tileWidth - 4, 5)
-        barBg:SetPoint("TOP", rateText, "BOTTOM", 0, -1)
+        -- Bar spans from left edge to right edge of tile (full width)
+        barBg:SetPoint("TOPLEFT", tile, "TOPLEFT", 0, -14)  -- Below icon/text row (12px + 2px gap)
+        barBg:SetPoint("TOPRIGHT", tile, "TOPRIGHT", 0, -14)
+        barBg:SetHeight(4)  -- 4px tall bar
         barBg:SetBackdrop({
             bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
             tile = true,
@@ -426,7 +476,7 @@ function GoldPH_HUD:Initialize()
         bar:GetStatusBarTexture():SetVertexColor(fillColor[1], fillColor[2], fillColor[3], fillColor[4])
         state.bar = bar
 
-        -- Initially hidden (will show when active)
+        -- Initially hidden (will be shown and positioned by UpdateMicroBars when session is active)
         tile:Hide()
     end
 
@@ -872,11 +922,16 @@ function GoldPH_HUD:ApplyMinimizeState()
     end
 
     -- Show/hide micro-bar tiles based on state
-    -- When minimized: tiles will be shown/hidden by UpdateMicroBars based on activity
-    -- When expanded: hide all tiles
-    if not isMinimized then
-        for _, state in pairs(metricStates) do
-            if state.tile then
+    -- When minimized: tiles are always shown (grayed out if inactive)
+    -- When expanded: hide tiles (expanded view shows full details)
+    if isMinimized then
+        -- Tiles will be positioned and updated by UpdateMicroBars
+        RepositionTiles(true)
+    else
+        -- Expanded: hide microbar tiles (full expanded view is shown instead)
+        for _, metricKey in ipairs(METRIC_ORDER) do
+            local state = metricStates[metricKey]
+            if state and state.tile then
                 state.tile:Hide()
             end
         end
@@ -888,9 +943,9 @@ function GoldPH_HUD:ApplyMinimizeState()
 
     if isMinimized then
         hudFrame:SetHeight(FRAME_HEIGHT_MINI)
-        -- Wider frame for horizontal layout (accommodate title + timer + 4 tiles)
-        -- 16 (pH) + 6 (gap) + 35 (timer) + 12 (gap) + 4*50 (tiles) + 3*6 (spacing) + 24 (padding) = ~311
-        hudFrame:SetWidth(310)
+        -- Frame width for exactly 4 metrics: left pad + 4*tile + 3*gap + right pad
+        -- PADDING (12) + 4*50 + 3*14 + PADDING (12) = 12 + 200 + 42 + 12 = 266
+        hudFrame:SetWidth(266)
     else
         hudFrame:SetHeight(FRAME_HEIGHT)
         hudFrame:SetWidth(FRAME_WIDTH)
