@@ -4,6 +4,8 @@
     Provides search, sort, zone, character, and flag filters.
 ]]
 
+-- luacheck: globals CreateFrame UIDropDownMenu_Initialize UIDropDownMenu_CreateInfo UIDROPDOWNMENU_OPEN_MENU ToggleDropDownMenu CloseDropDownMenus DropDownList1
+
 local GoldPH_History_Filters = {
     parent = nil,
     historyController = nil,
@@ -268,6 +270,31 @@ function GoldPH_History_Filters:ShowCharMenu(button)
     end, "MENU")
 
     ToggleDropDownMenu(1, nil, menu, button, 0, 0)
+end
+
+--------------------------------------------------
+-- Update Char Dropdown Label from filter state
+--------------------------------------------------
+function GoldPH_History_Filters:UpdateCharDropdownLabel()
+    local charKeys = self.historyController.filterState.charKeys
+    if not charKeys then
+        self.charDropdown.text:SetText("Char: All")
+        return
+    end
+    local count = 0
+    local firstKey = nil
+    for k, _ in pairs(charKeys) do
+        count = count + 1
+        if not firstKey then firstKey = k end
+    end
+    if count == 0 then
+        self.charDropdown.text:SetText("Char: All")
+    elseif count == 1 then
+        local charName = firstKey:match("^([^-]+)")
+        self.charDropdown.text:SetText("Char: " .. (charName or firstKey))
+    else
+        self.charDropdown.text:SetText("Char: " .. count .. " chars")
+    end
 end
 
 --------------------------------------------------

@@ -4,17 +4,19 @@
     Handles session creation, persistence, and metrics computation.
 ]]
 
+-- luacheck: globals GetMaxPlayerLevel UnitLevel UnitXP UnitXPMax GoldPH_DB_Account
+
 local GoldPH_SessionManager = {}
 
 -- Start a new session
 function GoldPH_SessionManager:StartSession()
-    if GoldPH_DB.activeSession then
+    if GoldPH_DB_Account.activeSession then
         return false, "A session is already active. Stop it first with /goldph stop"
     end
 
     -- Increment session ID
-    GoldPH_DB.meta.lastSessionId = GoldPH_DB.meta.lastSessionId + 1
-    local sessionId = GoldPH_DB.meta.lastSessionId
+    GoldPH_DB_Account.meta.lastSessionId = GoldPH_DB_Account.meta.lastSessionId + 1
+    local sessionId = GoldPH_DB_Account.meta.lastSessionId
 
     local now = time()
 
@@ -30,6 +32,11 @@ function GoldPH_SessionManager:StartSession()
         currentLoginAt = now,     -- Timestamp of current login segment (nil when logged out)
 
         zone = GetZoneText() or "Unknown",
+
+        -- Character attribution (for cross-character history filter)
+        character = UnitName("player") or "Unknown",
+        realm = GetRealmName() or "Unknown",
+        faction = UnitFactionGroup("player") or "Unknown",
 
         -- Phase 3: Item tracking
         items = {},      -- [itemID] = ItemAgg (count, expected value, etc.)
@@ -78,10 +85,10 @@ function GoldPH_SessionManager:StartSession()
     -- Initialize reputation tracking (via Events.lua after session created)
 
     -- Set as active session
-    GoldPH_DB.activeSession = session
+    GoldPH_DB_Account.activeSession = session
 
     -- Verbose debug: log initial duration tracking state
-    if GoldPH_DB.debug.verbose then
+    if GoldPH_DB_Account.debug.verbose then
         local dateStr
         if date then
             dateStr = date("%Y-%m-%d %H:%M:%S", session.startedAt)
@@ -102,11 +109,11 @@ end
 
 -- Stop the active session
 function GoldPH_SessionManager:StopSession()
-    if not GoldPH_DB.activeSession then
+    if not GoldPH_DB_Account.activeSession then
         return false, "No active session"
     end
 
-    local session = GoldPH_DB.activeSession
+    local session = GoldPH_DB_Account.activeSession
 
     local now = time()
 
@@ -121,10 +128,10 @@ function GoldPH_SessionManager:StopSession()
     session.durationSec = session.accumulatedDuration
 
     -- Save to history
-    GoldPH_DB.sessions[session.id] = session
+    GoldPH_DB_Account.sessions[session.id] = session
 
     -- Clear active session
-    GoldPH_DB.activeSession = nil
+    GoldPH_DB_Account.activeSession = nil
 
     -- Mark index stale for rebuild
     if GoldPH_Index then
@@ -137,7 +144,7 @@ end
 
 -- Get the active session (or nil)
 function GoldPH_SessionManager:GetActiveSession()
-    return GoldPH_DB.activeSession
+    return GoldPH_DB_Account.activeSession
 end
 
 -- Compute derived metrics for display
@@ -348,13 +355,13 @@ end
 
 -- Get session by ID
 function GoldPH_SessionManager:GetSession(sessionId)
-    return GoldPH_DB.sessions[sessionId]
+    return GoldPH_DB_Account.sessions[sessionId]
 end
 
 -- List all sessions (newest first)
 function GoldPH_SessionManager:ListSessions(limit)
     local sessions = {}
-    for _, session in pairs(GoldPH_DB.sessions) do
+    for _, session in pairs(GoldPH_DB_Account.sessions) do
         table.insert(sessions, session)
     end
 

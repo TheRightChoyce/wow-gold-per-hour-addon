@@ -91,7 +91,7 @@ function GoldPH_Ledger:Post(session, debitAccount, creditAccount, amountCopper, 
     end
 
     -- Optional: Store posting for audit trail (Phase 1 MVP: skip this)
-    -- if GoldPH_DB.debug.verbose then
+    -- if GoldPH_DB_Account.debug.verbose then
     --     table.insert(session.ledger.postings, {...})
     -- end
 end

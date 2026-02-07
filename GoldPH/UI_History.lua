@@ -4,6 +4,8 @@
     Manages the session history window with filters, list, and detail panes.
 ]]
 
+-- luacheck: globals GoldPH_Settings UnitName GetRealmName UnitFactionGroup
+
 local GoldPH_History = {
     frame = nil,
     listPane = nil,
@@ -156,18 +158,30 @@ function GoldPH_History:Show()
     end
 
     -- Restore position if saved
-    if GoldPH_DB.settings.historyPosition then
-        local pos = GoldPH_DB.settings.historyPosition
+    if GoldPH_Settings.historyPosition then
+        local pos = GoldPH_Settings.historyPosition
         self.frame:ClearAllPoints()
         self.frame:SetPoint(pos.point, UIParent, pos.relativePoint, pos.x, pos.y)
     end
 
     -- Restore filter state
-    if GoldPH_DB.settings.historyFilters then
-        for k, v in pairs(GoldPH_DB.settings.historyFilters) do
+    if GoldPH_Settings.historyFilters then
+        for k, v in pairs(GoldPH_Settings.historyFilters) do
             self.filterState[k] = v
         end
     end
+
+    -- Default character filter to current character (if not already set)
+    if self.filterState.charKeys == nil then
+        local charName = UnitName("player") or "Unknown"
+        local realm = GetRealmName() or "Unknown"
+        local faction = UnitFactionGroup("player") or "Unknown"
+        local currentCharKey = charName .. "-" .. realm .. "-" .. faction
+        self.filterState.charKeys = { [currentCharKey] = true }
+    end
+
+    -- Sync char dropdown label to filter state
+    GoldPH_History_Filters:UpdateCharDropdownLabel()
 
     -- Apply filters and refresh list
     self:RefreshList()
@@ -180,7 +194,7 @@ function GoldPH_History:Show()
         end
     end
 
-    GoldPH_DB.settings.historyVisible = true
+    GoldPH_Settings.historyVisible = true
 end
 
 function GoldPH_History:Hide()
@@ -190,7 +204,7 @@ function GoldPH_History:Hide()
 
     -- Save position
     local point, _, relativePoint, x, y = self.frame:GetPoint()
-    GoldPH_DB.settings.historyPosition = {
+    GoldPH_Settings.historyPosition = {
         point = point,
         relativePoint = relativePoint,
         x = x,
@@ -198,13 +212,13 @@ function GoldPH_History:Hide()
     }
 
     -- Save filter state
-    GoldPH_DB.settings.historyFilters = {}
+    GoldPH_Settings.historyFilters = {}
     for k, v in pairs(self.filterState) do
-        GoldPH_DB.settings.historyFilters[k] = v
+        GoldPH_Settings.historyFilters[k] = v
     end
 
     self.frame:Hide()
-    GoldPH_DB.settings.historyVisible = false
+    GoldPH_Settings.historyVisible = false
 end
 
 function GoldPH_History:Toggle()

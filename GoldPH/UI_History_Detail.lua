@@ -4,6 +4,8 @@
     Shows session details across 4 tabs: Summary, Items, Gathering, Compare
 ]]
 
+-- luacheck: globals GoldPH_Settings
+
 local GoldPH_History_Detail = {
     parent = nil,
     historyController = nil,
@@ -144,8 +146,8 @@ function GoldPH_History_Detail:SwitchTab(tabKey)
     self:RenderActiveTab()
 
     -- Save active tab preference
-    if GoldPH_DB and GoldPH_DB.settings then
-        GoldPH_DB.settings.historyActiveTab = tabKey
+    if GoldPH_Settings then
+        GoldPH_Settings.historyActiveTab = tabKey
     end
 end
 

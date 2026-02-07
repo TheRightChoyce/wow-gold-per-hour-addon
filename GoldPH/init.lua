@@ -1,52 +1,121 @@
 --[[
-    init.lua - Entry point for GoldPH addon
+    init.lua - Entry point for GoldPH
 
     Handles initialization, slash commands, and event frame setup.
+    Account-wide: GoldPH_DB_Account (sessions). Per-character: GoldPH_DB (legacy migration), GoldPH_Settings (UI).
 ]]
+
+-- luacheck: globals GoldPH_DB GoldPH_DB_Account GoldPH_Settings
 
 -- Create main addon frame
 local GoldPH_MainFrame = CreateFrame("Frame", "GoldPH_MainFrame")
 
+-- Migration version: after migrating, set this so we can remove migration code later
+local MIGRATION_VERSION = 2
+
+-- Ensure account-wide DB exists and migrate from per-character if needed
+local function EnsureAccountDB()
+    if not GoldPH_DB_Account then
+        GoldPH_DB_Account = {
+            meta = { version = MIGRATION_VERSION, lastSessionId = 0 },
+            priceOverrides = {},
+            activeSession = nil,
+            sessions = {},
+            debug = { enabled = false, verbose = false, lastTestResults = {} },
+        }
+    end
+    if not GoldPH_DB_Account.meta then
+        GoldPH_DB_Account.meta = { version = MIGRATION_VERSION, lastSessionId = 0 }
+    end
+    if GoldPH_DB_Account.meta.lastSessionId == nil then
+        GoldPH_DB_Account.meta.lastSessionId = 0
+    end
+end
+
+-- Merge current character's sessions from per-char GoldPH_DB into GoldPH_DB_Account
+local function MigrateFromPerCharacter()
+    if not GoldPH_DB or not GoldPH_DB.sessions then
+        return
+    end
+    EnsureAccountDB()
+    local account = GoldPH_DB_Account
+    local charSessions = GoldPH_DB.sessions
+    local maxId = account.meta.lastSessionId or 0
+    for sid, session in pairs(charSessions) do
+        if account.sessions[sid] then
+            -- ID conflict: assign new id
+            maxId = maxId + 1
+            session.id = maxId
+            account.sessions[maxId] = session
+        else
+            account.sessions[sid] = session
+            if sid > maxId then
+                maxId = sid
+            end
+        end
+        -- Backfill character metadata for old sessions
+        if not session.character and GoldPH_DB.meta then
+            session.character = GoldPH_DB.meta.character or "Unknown"
+            session.realm = GoldPH_DB.meta.realm or "Unknown"
+            session.faction = GoldPH_DB.meta.faction or "Unknown"
+        end
+    end
+    account.meta.lastSessionId = maxId
+    -- Merge activeSession if it belongs to this character (same as current)
+    if GoldPH_DB.activeSession then
+        account.activeSession = GoldPH_DB.activeSession
+        if not account.activeSession.character and GoldPH_DB.meta then
+            account.activeSession.character = GoldPH_DB.meta.character or "Unknown"
+            account.activeSession.realm = GoldPH_DB.meta.realm or "Unknown"
+            account.activeSession.faction = GoldPH_DB.meta.faction or "Unknown"
+        end
+    end
+    -- Merge price overrides
+    if GoldPH_DB.priceOverrides then
+        for itemID, copper in pairs(GoldPH_DB.priceOverrides) do
+            if not account.priceOverrides[itemID] then
+                account.priceOverrides[itemID] = copper
+            end
+        end
+    end
+    -- Preserve debug if set
+    if GoldPH_DB.debug then
+        if GoldPH_DB.debug.verbose then
+            account.debug.verbose = true
+        end
+        if GoldPH_DB.debug.enabled then
+            account.debug.enabled = true
+        end
+    end
+end
+
 -- Initialize saved variables on first load
 local function InitializeSavedVariables()
-    if not GoldPH_DB then
-        GoldPH_DB = {
-            meta = {
-                version = 1,
-                realm = GetRealmName() or "Unknown",
-                faction = UnitFactionGroup("player") or "Unknown",
-                character = UnitName("player") or "Unknown",
-                lastSessionId = 0,
-            },
+    EnsureAccountDB()
+    -- Migrate from per-character DB (GoldPH_DB) into account DB
+    MigrateFromPerCharacter()
 
-            settings = {
-                trackZone = true,
-                hudVisible = true,   -- Track HUD visibility state
-                hudMinimized = false, -- Track HUD minimize state
-                historyVisible = false,
-                historyMinimized = false,
-                historyPosition = nil,
-                historyActiveTab = "summary",
-                historyFilters = {
-                    sort = "totalPerHour",
-                },
-            },
-
-            priceOverrides = {},
-
-            activeSession = nil,
-
-            sessions = {},
-
-            debug = {
-                enabled = false,
-                verbose = false,
-                lastTestResults = {},
-            },
+    -- Per-character settings (UI state)
+    if not GoldPH_Settings then
+        GoldPH_Settings = {
+            trackZone = true,
+            hudVisible = true,
+            hudMinimized = false,
+            historyVisible = false,
+            historyMinimized = false,
+            historyPosition = nil,
+            historyActiveTab = "summary",
+            historyFilters = { sort = "totalPerHour" },
         }
-
-        print("[GoldPH] Initialized for " .. GoldPH_DB.meta.character .. " on " .. GoldPH_DB.meta.realm)
+        -- Copy from legacy if present
+        if GoldPH_DB and GoldPH_DB.settings then
+            for k, v in pairs(GoldPH_DB.settings) do
+                GoldPH_Settings[k] = v
+            end
+        end
     end
+
+    -- Rest of addon uses GoldPH_DB_Account (see SessionManager, Index, Events, UI_*, etc.)
 end
 
 -- Addon loaded event handler
@@ -54,8 +123,8 @@ GoldPH_MainFrame:RegisterEvent("ADDON_LOADED")
 GoldPH_MainFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 GoldPH_MainFrame:RegisterEvent("PLAYER_LOGOUT")
 GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
-    local addonName = select(1, ...)  -- First vararg for ADDON_LOADED event
-    
+    local addonName = select(1, ...)
+
     if event == "ADDON_LOADED" and addonName == "GoldPH" then
         InitializeSavedVariables()
 
@@ -65,18 +134,32 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
         -- Initialize event system (registers additional events)
         GoldPH_Events:Initialize(GoldPH_MainFrame)
 
-        print("[GoldPH] Version 0.7.0 (Phase 7: Gathering & Sessions UI) loaded. Type /goldph help for commands.")
+        local charName = UnitName("player") or "Unknown"
+        local realm = GetRealmName() or "Unknown"
+        print("[GoldPH] Version 0.8.0 (cross-character sessions) loaded. Type /goldph help for commands.")
     elseif event == "PLAYER_ENTERING_WORLD" then
-        -- Ensure settings exist (for existing SavedVariables)
-        if GoldPH_DB.settings.hudVisible == nil then
-            GoldPH_DB.settings.hudVisible = true
+        -- Ensure settings exist
+        if not GoldPH_Settings then
+            GoldPH_Settings = {
+                trackZone = true,
+                hudVisible = true,
+                hudMinimized = false,
+                historyVisible = false,
+                historyMinimized = false,
+                historyPosition = nil,
+                historyActiveTab = "summary",
+                historyFilters = { sort = "totalPerHour" },
+            }
         end
-        if GoldPH_DB.settings.hudMinimized == nil then
-            GoldPH_DB.settings.hudMinimized = false
+        if GoldPH_Settings.hudVisible == nil then
+            GoldPH_Settings.hudVisible = true
+        end
+        if GoldPH_Settings.hudMinimized == nil then
+            GoldPH_Settings.hudMinimized = false
         end
 
         -- Ensure active session has duration tracking fields
-        local session = GoldPH_DB.activeSession
+        local session = GoldPH_DB_Account.activeSession
         if session then
             local wasNewLogin = false
             if session.accumulatedDuration == nil then
@@ -87,8 +170,7 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
                 wasNewLogin = true
             end
 
-            -- Verbose debug: log login segment initialization
-            if GoldPH_DB.debug.verbose then
+            if GoldPH_DB_Account.debug and GoldPH_DB_Account.debug.verbose then
                 print(string.format(
                     "[GoldPH Debug] PLAYER_ENTERING_WORLD | Session #%d | accumulatedDuration=%d | currentLoginAt=%s | wasNewLogin=%s",
                     session.id,
@@ -100,8 +182,8 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
         end
 
         -- Auto-restore HUD visibility and state if session is active
-        if GoldPH_DB.activeSession then
-            if GoldPH_DB.settings.hudVisible then
+        if GoldPH_DB_Account.activeSession then
+            if GoldPH_Settings.hudVisible then
                 GoldPH_HUD:Show()
                 GoldPH_HUD:ApplyMinimizeState()
             else
@@ -110,7 +192,7 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
         end
     elseif event == "PLAYER_LOGOUT" then
         -- Fold the current login segment into the session accumulator on logout
-        local session = GoldPH_DB.activeSession
+        local session = GoldPH_DB_Account.activeSession
         if session and session.currentLoginAt then
             local now = time()
             local segmentDuration = now - session.currentLoginAt
@@ -118,8 +200,7 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
             session.accumulatedDuration = session.accumulatedDuration + segmentDuration
             session.currentLoginAt = nil
 
-            -- Verbose debug: log logout segment folding
-            if GoldPH_DB.debug.verbose then
+            if GoldPH_DB_Account.debug and GoldPH_DB_Account.debug.verbose then
                 print(string.format(
                     "[GoldPH Debug] PLAYER_LOGOUT | Session #%d | segmentDuration=%ds | oldAccumulated=%d | newAccumulated=%d",
                     session.id,
@@ -130,11 +211,8 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
             end
         end
 
-        -- Route logout to event system as well (in case it needs it)
         GoldPH_Events:OnEvent(event, ...)
     else
-        -- Route other events to GoldPH_Events
-        -- Pass all event arguments (not just addonName) for events like QUEST_TURNED_IN
         GoldPH_Events:OnEvent(event, ...)
     end
 end)
@@ -180,31 +258,20 @@ local function HandleCommand(msg)
     local cmd = args[1] or "help"
     cmd = cmd:lower()
 
-    -- Allow short debug-style commands to fall through, e.g.:
-    -- "/ph dump" -> "/goldph debug dump"
-    -- This also works for other debug subcommands like ledger, holdings, prices, pickpocket, etc.
     local debugShortcuts = {
-        dump = true,
-        ledger = true,
-        holdings = true,
-        prices = true,
-        pickpocket = true,
-        on = true,
-        off = true,
-        verbose = true,
+        dump = true, ledger = true, holdings = true, prices = true, pickpocket = true,
+        on = true, off = true, verbose = true,
     }
-
     if debugShortcuts[cmd] then
         table.insert(args, 1, "debug")
         cmd = "debug"
     end
 
-    -- Session commands
     if cmd == "start" then
         local ok, message = GoldPH_SessionManager:StartSession()
         print("[GoldPH] " .. message)
         if ok then
-            GoldPH_HUD:Show()  -- Explicitly show HUD when starting session
+            GoldPH_HUD:Show()
         end
 
     elseif cmd == "stop" then
@@ -231,25 +298,22 @@ local function HandleCommand(msg)
     elseif cmd == "history" then
         GoldPH_History:Toggle()
 
-    -- Debug commands
     elseif cmd == "debug" then
         local subCmd = args[2] or ""
         subCmd = subCmd:lower()
-
         if subCmd == "on" then
-            GoldPH_DB.debug.enabled = true
+            GoldPH_DB_Account.debug.enabled = true
             print("[GoldPH] Debug mode enabled (invariants will auto-run)")
         elseif subCmd == "off" then
-            GoldPH_DB.debug.enabled = false
+            GoldPH_DB_Account.debug.enabled = false
             print("[GoldPH] Debug mode disabled")
         elseif subCmd == "verbose" then
-            local setting = args[3] or ""
-            setting = setting:lower()
+            local setting = (args[3] or ""):lower()
             if setting == "on" then
-                GoldPH_DB.debug.verbose = true
+                GoldPH_DB_Account.debug.verbose = true
                 print("[GoldPH] Verbose logging enabled")
             elseif setting == "off" then
-                GoldPH_DB.debug.verbose = false
+                GoldPH_DB_Account.debug.verbose = false
                 print("[GoldPH] Verbose logging disabled")
             else
                 print("[GoldPH] Usage: /goldph debug verbose on|off")
@@ -268,11 +332,8 @@ local function HandleCommand(msg)
             print("[GoldPH] Debug commands: on, off, verbose, dump, ledger, holdings, prices, pickpocket")
         end
 
-    -- Test commands
     elseif cmd == "test" then
-        local subCmd = args[2] or ""
-        subCmd = subCmd:lower()
-
+        local subCmd = (args[2] or ""):lower()
         if subCmd == "run" then
             GoldPH_Debug:RunTests()
         elseif subCmd == "hud" then
@@ -325,7 +386,6 @@ local function HandleCommand(msg)
             print("[GoldPH] Test commands: run, hud, reset, loot <copper>, repair <copper>, lootitem <itemID> <count>, vendoritem <itemID> <count>")
         end
 
-    -- Help
     elseif cmd == "help" then
         ShowHelp()
 
@@ -334,7 +394,6 @@ local function HandleCommand(msg)
     end
 end
 
--- Register slash commands
 SLASH_GOLDPH1 = "/goldph"
 SLASH_GOLDPH2 = "/gph"
 SLASH_GOLDPH3 = "/ph"
