@@ -12,6 +12,9 @@ GoldPH is a World of Warcraft addon (Classic Anniversary) that tracks gold-per-h
 - **Snapshot pricing**: Store per-session prices at acquisition time
 - **Minimal dependencies**: Optionally use TSM prices if present, but never require them
 
+## UI Design
+Follow the guidelines in: PH_UI_DESIGN_BRIEF_AND_RULES.md when creating any component or interface
+
 ## Architecture
 
 ### Component Structure
