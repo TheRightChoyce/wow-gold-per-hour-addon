@@ -28,6 +28,7 @@ function GoldPH_SessionManager:StartSession()
         -- Phase 7: Accurate duration across logins
         accumulatedDuration = 0,  -- Total in-game seconds played this session
         currentLoginAt = now,     -- Timestamp of current login segment (nil when logged out)
+        pausedAt = nil,           -- When set, session is paused (clock and events frozen)
 
         zone = GetZoneText() or "Unknown",
 
@@ -140,6 +141,43 @@ function GoldPH_SessionManager:GetActiveSession()
     return GoldPH_DB.activeSession
 end
 
+-- Return true if the session is paused (clock and events frozen)
+function GoldPH_SessionManager:IsPaused(session)
+    return session and session.pausedAt ~= nil
+end
+
+-- Pause the active session (stop clock and do not record events until resumed)
+function GoldPH_SessionManager:PauseSession()
+    if not GoldPH_DB.activeSession then
+        return false, "No active session"
+    end
+    local session = GoldPH_DB.activeSession
+    if session.pausedAt then
+        return false, "Session is already paused"
+    end
+    local now = time()
+    if session.currentLoginAt then
+        session.accumulatedDuration = session.accumulatedDuration + (now - session.currentLoginAt)
+        session.currentLoginAt = nil
+    end
+    session.pausedAt = now
+    return true, "Session paused"
+end
+
+-- Resume a paused session
+function GoldPH_SessionManager:ResumeSession()
+    if not GoldPH_DB.activeSession then
+        return false, "No active session"
+    end
+    local session = GoldPH_DB.activeSession
+    if not session.pausedAt then
+        return false, "Session is not paused"
+    end
+    session.pausedAt = nil
+    session.currentLoginAt = time()
+    return true, "Session resumed"
+end
+
 -- Compute derived metrics for display
 function GoldPH_SessionManager:GetMetrics(session)
     if not session then
@@ -149,8 +187,11 @@ function GoldPH_SessionManager:GetMetrics(session)
     local now = time()
     local durationSec
 
+    -- When paused, use only accumulated duration (no live addition)
+    if session.pausedAt then
+        durationSec = session.accumulatedDuration or 0
     -- Phase 7: Use new duration tracking if available
-    if session.accumulatedDuration then
+    elseif session.accumulatedDuration then
         local accumulated = session.accumulatedDuration
         if session.currentLoginAt then
             durationSec = accumulated + (now - session.currentLoginAt)

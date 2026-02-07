@@ -108,6 +108,12 @@ end
 
 -- Main event dispatcher
 function GoldPH_Events:OnEvent(event, ...)
+    -- Do not record any events while session is paused (keeps gold/hr accurate)
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if session and session.pausedAt then
+        return
+    end
+
     if event == "CHAT_MSG_MONEY" then
         self:OnLootedCoin(...)
     elseif event == "CHAT_MSG_LOOT" then
@@ -1310,7 +1316,7 @@ function GoldPH_Events:OnPlayerXPUpdate()
     end
 
     -- Compute delta with rollover detection
-    local delta = 0
+    local delta = 0  -- luacheck: ignore 311 (false positive, variable is used below)
     if newXP >= state.xpLast then
         -- Normal gain (no level-up)
         delta = newXP - state.xpLast
