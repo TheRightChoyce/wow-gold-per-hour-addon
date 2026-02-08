@@ -5,6 +5,8 @@
 ]]
 
 -- luacheck: globals GoldPH_Settings
+-- Access pH brand colors
+local pH_Colors = _G.pH_Colors
 
 local GoldPH_History_Detail = {
     parent = nil,
@@ -19,16 +21,6 @@ local GoldPH_History_Detail = {
     currentSessionId = nil,
     currentSession = nil,
     currentMetrics = nil,
-}
-
--- Color palette helper
-local Colors = {
-    gold = {1, 0.82, 0},
-    green = {0, 1, 0},
-    lightBlue = {0.5, 0.8, 1},
-    red = {1, 0.3, 0.3},
-    gray = {0.7, 0.7, 0.7},
-    darkGray = {0.5, 0.5, 0.5},
 }
 
 -- Item quality colors (WoW standard)
@@ -72,8 +64,10 @@ function GoldPH_History_Detail:Initialize(parent, historyController)
             edgeSize = 8,
             insets = {left = 2, right = 2, top = 2, bottom = 2}
         })
-        tab:SetBackdropColor(0.15, 0.15, 0.15, 1)
-        tab:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+        local PH_BG_DARK = pH_Colors.BG_DARK
+        local PH_DIVIDER = pH_Colors.DIVIDER
+        tab:SetBackdropColor(PH_BG_DARK[1], PH_BG_DARK[2], PH_BG_DARK[3], 0.80)
+        tab:SetBackdropBorderColor(PH_DIVIDER[1], PH_DIVIDER[2], PH_DIVIDER[3], 0.60)
 
         local tabText = tab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         tabText:SetPoint("CENTER")
@@ -123,13 +117,18 @@ end
 --------------------------------------------------
 function GoldPH_History_Detail:SwitchTab(tabKey)
     -- Update tab appearance
+    local SELECTED = pH_Colors.SELECTED
+    local TEXT_PRIMARY = pH_Colors.TEXT_PRIMARY
+    local PH_BG_DARK = pH_Colors.BG_DARK
+    local TEXT_MUTED = pH_Colors.TEXT_MUTED
+
     for key, tab in pairs(self.tabs) do
         if key == tabKey then
-            tab:SetBackdropColor(0.3, 0.5, 0.7, 1)
-            tab.text:SetTextColor(1, 1, 1)
+            tab:SetBackdropColor(SELECTED[1], SELECTED[2], SELECTED[3], 1)
+            tab.text:SetTextColor(TEXT_PRIMARY[1], TEXT_PRIMARY[2], TEXT_PRIMARY[3])
         else
-            tab:SetBackdropColor(0.15, 0.15, 0.15, 1)
-            tab.text:SetTextColor(0.7, 0.7, 0.7)
+            tab:SetBackdropColor(PH_BG_DARK[1], PH_BG_DARK[2], PH_BG_DARK[3], 0.80)
+            tab.text:SetTextColor(TEXT_MUTED[1], TEXT_MUTED[2], TEXT_MUTED[3])
         end
     end
 
@@ -217,7 +216,7 @@ function GoldPH_History_Detail:RenderEmptyState()
     local emptyText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     emptyText:SetPoint("CENTER", scrollChild, "CENTER")
     emptyText:SetText("No session selected")
-    emptyText:SetTextColor(Colors.darkGray[1], Colors.darkGray[2], Colors.darkGray[3])
+    emptyText:SetTextColor(pH_Colors.TEXT_DISABLED[1], pH_Colors.TEXT_DISABLED[2], pH_Colors.TEXT_DISABLED[3])
 end
 
 --------------------------------------------------
@@ -270,7 +269,7 @@ function GoldPH_History_Detail:RenderSummaryTab()
         local header = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
         header:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
         header:SetText(text)
-        header:SetTextColor(Colors.gold[1], Colors.gold[2], Colors.gold[3])
+        header:SetTextColor(pH_Colors.ACCENT_GOLD[1], pH_Colors.ACCENT_GOLD[2], pH_Colors.ACCENT_GOLD[3])
         yOffset = yOffset - 20
         return header
     end
@@ -281,6 +280,7 @@ function GoldPH_History_Detail:RenderSummaryTab()
         labelText:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 15, yOffset)
         labelText:SetText(label .. ":")
         labelText:SetJustifyH("LEFT")
+        labelText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
 
         local valueText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         valueText:SetPoint("LEFT", labelText, "RIGHT", 10, 0)
@@ -288,6 +288,8 @@ function GoldPH_History_Detail:RenderSummaryTab()
         valueText:SetJustifyH("LEFT")
         if valueColor then
             valueText:SetTextColor(valueColor[1], valueColor[2], valueColor[3])
+        else
+            valueText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
         end
 
         yOffset = yOffset - 18
@@ -296,16 +298,16 @@ function GoldPH_History_Detail:RenderSummaryTab()
 
     -- Session Info (compact)
     AddHeader("Session #" .. session.id .. " - " .. (session.zone or "Unknown"))
-    AddRow("Started", FormatFriendlyDate(session.startedAt), Colors.gray)
+    AddRow("Started", FormatFriendlyDate(session.startedAt), pH_Colors.TEXT_MUTED)
     AddRow("Duration", GoldPH_SessionManager:FormatDuration(metrics.durationSec))
 
     yOffset = yOffset - 10
 
     -- Economic Summary
     AddHeader("Economic Summary")
-    AddRow("Total Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.totalPerHour) .. "/hr", Colors.gold)
-    AddRow("Cash Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.cashPerHour) .. "/hr", Colors.green)
-    AddRow("Expected Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.expectedPerHour) .. "/hr", Colors.lightBlue)
+    AddRow("Total Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.totalPerHour) .. "/hr", pH_Colors.TEXT_MUTED)
+    AddRow("Cash Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.cashPerHour) .. "/hr", pH_Colors.ACCENT_GOOD)
+    AddRow("Expected Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.expectedPerHour) .. "/hr", pH_Colors.TEXT_MUTED)
 
     yOffset = yOffset - 10
 
@@ -316,11 +318,11 @@ function GoldPH_History_Detail:RenderSummaryTab()
     AddRow("Vendor Sales", GoldPH_Ledger:FormatMoney(GoldPH_Ledger:GetBalance(session, "Income:VendorSales")))
     -- Expenses: only show negative sign and red color if value is non-zero
     local repairsText = metrics.expenseRepairs > 0 and ("-" .. GoldPH_Ledger:FormatMoney(metrics.expenseRepairs)) or GoldPH_Ledger:FormatMoney(metrics.expenseRepairs)
-    AddRow("Repairs", repairsText, metrics.expenseRepairs > 0 and Colors.red or nil)
+    AddRow("Repairs", repairsText, metrics.expenseRepairs > 0 and pH_Colors.ACCENT_BAD or nil)
     local vendorBuysText = metrics.expenseVendorBuys > 0 and ("-" .. GoldPH_Ledger:FormatMoney(metrics.expenseVendorBuys)) or GoldPH_Ledger:FormatMoney(metrics.expenseVendorBuys)
-    AddRow("Vendor Purchases", vendorBuysText, metrics.expenseVendorBuys > 0 and Colors.red or nil)
+    AddRow("Vendor Purchases", vendorBuysText, metrics.expenseVendorBuys > 0 and pH_Colors.ACCENT_BAD or nil)
     local travelText = metrics.expenseTravel > 0 and ("-" .. GoldPH_Ledger:FormatMoney(metrics.expenseTravel)) or GoldPH_Ledger:FormatMoney(metrics.expenseTravel)
-    AddRow("Travel", travelText, metrics.expenseTravel > 0 and Colors.red or nil)
+    AddRow("Travel", travelText, metrics.expenseTravel > 0 and pH_Colors.ACCENT_BAD or nil)
 
     yOffset = yOffset - 10
 
@@ -378,7 +380,7 @@ function GoldPH_History_Detail:RenderSummaryTab()
             local topFactionsLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             topFactionsLabel:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 15, yOffset)
             topFactionsLabel:SetText("Top Factions:")
-            topFactionsLabel:SetTextColor(Colors.gray[1], Colors.gray[2], Colors.gray[3])
+            topFactionsLabel:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
             yOffset = yOffset - 16
 
             for _, factionData in ipairs(metrics.repTopFactions) do
@@ -419,7 +421,7 @@ function GoldPH_History_Detail:RenderItemsTab()
         local emptyText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         emptyText:SetPoint("CENTER", scrollChild, "CENTER")
         emptyText:SetText("No items looted in this session")
-        emptyText:SetTextColor(Colors.darkGray[1], Colors.darkGray[2], Colors.darkGray[3])
+        emptyText:SetTextColor(pH_Colors.TEXT_DISABLED[1], pH_Colors.TEXT_DISABLED[2], pH_Colors.TEXT_DISABLED[3])
         return
     end
 
@@ -440,24 +442,24 @@ function GoldPH_History_Detail:RenderItemsTab()
     local header = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     header:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
     header:SetText("Items Looted")
-    header:SetTextColor(Colors.gold[1], Colors.gold[2], Colors.gold[3])
+    header:SetTextColor(pH_Colors.ACCENT_GOLD[1], pH_Colors.ACCENT_GOLD[2], pH_Colors.ACCENT_GOLD[3])
     yOffset = yOffset - 25
 
     -- Column headers
     local colHeaders = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     colHeaders:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 15, yOffset)
     colHeaders:SetText("Item Name")
-    colHeaders:SetTextColor(Colors.gray[1], Colors.gray[2], Colors.gray[3])
+    colHeaders:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
 
     local colQty = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     colQty:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -150, yOffset)
     colQty:SetText("Qty")
-    colQty:SetTextColor(Colors.gray[1], Colors.gray[2], Colors.gray[3])
+    colQty:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
 
     local colValue = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     colValue:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -50, yOffset)
     colValue:SetText("Value")
-    colValue:SetTextColor(Colors.gray[1], Colors.gray[2], Colors.gray[3])
+    colValue:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
 
     yOffset = yOffset - 20
 
@@ -503,7 +505,7 @@ function GoldPH_History_Detail:RenderItemsTab()
     summaryText:SetText(string.format("Total: %d items worth %s",
         totalItems,
         GoldPH_Ledger:FormatMoney(totalValue)))
-    summaryText:SetTextColor(Colors.gold[1], Colors.gold[2], Colors.gold[3])
+    summaryText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
     yOffset = yOffset - 20
 
     -- Update scroll child height
@@ -528,7 +530,7 @@ function GoldPH_History_Detail:RenderGatheringTab()
         local emptyText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         emptyText:SetPoint("CENTER", scrollChild, "CENTER")
         emptyText:SetText("No gathering data for this session")
-        emptyText:SetTextColor(Colors.darkGray[1], Colors.darkGray[2], Colors.darkGray[3])
+        emptyText:SetTextColor(pH_Colors.TEXT_DISABLED[1], pH_Colors.TEXT_DISABLED[2], pH_Colors.TEXT_DISABLED[3])
         return
     end
 
@@ -538,7 +540,7 @@ function GoldPH_History_Detail:RenderGatheringTab()
     local header = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     header:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
     header:SetText("Gathering Statistics")
-    header:SetTextColor(Colors.gold[1], Colors.gold[2], Colors.gold[3])
+    header:SetTextColor(pH_Colors.ACCENT_GOLD[1], pH_Colors.ACCENT_GOLD[2], pH_Colors.ACCENT_GOLD[3])
     yOffset = yOffset - 25
 
     -- Total nodes summary
@@ -551,31 +553,31 @@ function GoldPH_History_Detail:RenderGatheringTab()
     local summaryText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     summaryText:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 15, yOffset)
     summaryText:SetText(string.format("Total Nodes: %d  |  Nodes/Hour: %d", totalNodes, nodesPerHour))
-    summaryText:SetTextColor(Colors.green[1], Colors.green[2], Colors.green[3])
+    summaryText:SetTextColor(pH_Colors.ACCENT_GOOD[1], pH_Colors.ACCENT_GOOD[2], pH_Colors.ACCENT_GOOD[3])
     yOffset = yOffset - 25
 
     -- Node breakdown header
     local breakdownHeader = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     breakdownHeader:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
     breakdownHeader:SetText("Node Breakdown")
-    breakdownHeader:SetTextColor(Colors.gold[1], Colors.gold[2], Colors.gold[3])
+    breakdownHeader:SetTextColor(pH_Colors.ACCENT_GOLD[1], pH_Colors.ACCENT_GOLD[2], pH_Colors.ACCENT_GOLD[3])
     yOffset = yOffset - 20
 
     -- Column headers
     local colNode = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     colNode:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 15, yOffset)
     colNode:SetText("Node Type")
-    colNode:SetTextColor(Colors.gray[1], Colors.gray[2], Colors.gray[3])
+    colNode:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
 
     local colCount = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     colCount:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -100, yOffset)
     colCount:SetText("Count")
-    colCount:SetTextColor(Colors.gray[1], Colors.gray[2], Colors.gray[3])
+    colCount:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
 
     local colPercent = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     colPercent:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -10, yOffset)
     colPercent:SetText("% of Total")
-    colPercent:SetTextColor(Colors.gray[1], Colors.gray[2], Colors.gray[3])
+    colPercent:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
 
     yOffset = yOffset - 20
 
@@ -656,7 +658,7 @@ function GoldPH_History_Detail:RenderCompareTab()
         local emptyText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         emptyText:SetPoint("CENTER", scrollChild, "CENTER")
         emptyText:SetText("Not enough sessions in this zone for comparison\n(Need at least 2 sessions)")
-        emptyText:SetTextColor(Colors.darkGray[1], Colors.darkGray[2], Colors.darkGray[3])
+        emptyText:SetTextColor(pH_Colors.TEXT_DISABLED[1], pH_Colors.TEXT_DISABLED[2], pH_Colors.TEXT_DISABLED[3])
         return
     end
 
@@ -666,7 +668,7 @@ function GoldPH_History_Detail:RenderCompareTab()
     local header = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     header:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
     header:SetText("Zone Performance Comparison")
-    header:SetTextColor(Colors.gold[1], Colors.gold[2], Colors.gold[3])
+    header:SetTextColor(pH_Colors.ACCENT_GOLD[1], pH_Colors.ACCENT_GOLD[2], pH_Colors.ACCENT_GOLD[3])
     yOffset = yOffset - 25
 
     -- Subheader
@@ -676,7 +678,7 @@ function GoldPH_History_Detail:RenderCompareTab()
         zoneStats.sessionCount - 1,  -- Exclude current session
         (zoneStats.sessionCount - 1) ~= 1 and "s" or "",
         thisZone))
-    subheader:SetTextColor(Colors.gray[1], Colors.gray[2], Colors.gray[3])
+    subheader:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
     yOffset = yOffset - 25
 
     -- Comparison table header
@@ -698,7 +700,7 @@ function GoldPH_History_Detail:RenderCompareTab()
         avgText:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 250, yOffset)
         avgText:SetText(avgValue)
         avgText:SetJustifyH("LEFT")
-        avgText:SetTextColor(Colors.gray[1], Colors.gray[2], Colors.gray[3])
+        avgText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
 
         -- Difference
         local diffText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -717,17 +719,17 @@ function GoldPH_History_Detail:RenderCompareTab()
     local colThis = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     colThis:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 180, yOffset)
     colThis:SetText("This")
-    colThis:SetTextColor(Colors.gold[1], Colors.gold[2], Colors.gold[3])
+    colThis:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
 
     local colAvg = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     colAvg:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 250, yOffset)
     colAvg:SetText("Zone Avg")
-    colAvg:SetTextColor(Colors.gold[1], Colors.gold[2], Colors.gold[3])
+    colAvg:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
 
     local colDiff = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     colDiff:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 320, yOffset)
     colDiff:SetText("Diff")
-    colDiff:SetTextColor(Colors.gold[1], Colors.gold[2], Colors.gold[3])
+    colDiff:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
 
     yOffset = yOffset - 20
 
@@ -776,7 +778,7 @@ function GoldPH_History_Detail:RenderCompareTab()
     local insightsHeader = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     insightsHeader:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
     insightsHeader:SetText("Insights")
-    insightsHeader:SetTextColor(Colors.gold[1], Colors.gold[2], Colors.gold[3])
+    insightsHeader:SetTextColor(pH_Colors.ACCENT_GOLD[1], pH_Colors.ACCENT_GOLD[2], pH_Colors.ACCENT_GOLD[3])
     yOffset = yOffset - 20
 
     -- Calculate rank in zone
@@ -799,13 +801,13 @@ function GoldPH_History_Detail:RenderCompareTab()
 
     if perfPercent > 10 then
         perfInsight:SetText(string.format("* Great session! %d%% above zone average", perfPercent))
-        perfInsight:SetTextColor(Colors.green[1], Colors.green[2], Colors.green[3])
+        perfInsight:SetTextColor(pH_Colors.ACCENT_GOOD[1], pH_Colors.ACCENT_GOOD[2], pH_Colors.ACCENT_GOOD[3])
     elseif perfPercent < -10 then
         perfInsight:SetText(string.format("* Below average by %d%% - room for improvement", math.abs(perfPercent)))
-        perfInsight:SetTextColor(Colors.red[1], Colors.red[2], Colors.red[3])
+        perfInsight:SetTextColor(pH_Colors.ACCENT_BAD[1], pH_Colors.ACCENT_BAD[2], pH_Colors.ACCENT_BAD[3])
     else
         perfInsight:SetText("* Performing close to zone average")
-        perfInsight:SetTextColor(Colors.gray[1], Colors.gray[2], Colors.gray[3])
+        perfInsight:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
     end
     yOffset = yOffset - 18
 
@@ -813,7 +815,7 @@ function GoldPH_History_Detail:RenderCompareTab()
     local rankInsight = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     rankInsight:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 15, yOffset)
     rankInsight:SetText(string.format("* Ranked #%d of %d sessions in this zone", rank, #allZoneSessions))
-    rankInsight:SetTextColor(Colors.lightBlue[1], Colors.lightBlue[2], Colors.lightBlue[3])
+    rankInsight:SetTextColor(pH_Colors.TEXT_PRIMARY[1], pH_Colors.TEXT_PRIMARY[2], pH_Colors.TEXT_PRIMARY[3])
     yOffset = yOffset - 18
 
     -- Insight: Best session reference
@@ -823,7 +825,7 @@ function GoldPH_History_Detail:RenderCompareTab()
         bestInsight:SetText(string.format("* Best session in zone: %s/hr (Session #%d)",
             GoldPH_Ledger:FormatMoneyShort(zoneStats.bestTotalPerHour),
             zoneStats.bestSessionId))
-        bestInsight:SetTextColor(Colors.gold[1], Colors.gold[2], Colors.gold[3])
+        bestInsight:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
         yOffset = yOffset - 18
     end
 

@@ -5,6 +5,8 @@
 ]]
 
 -- luacheck: globals CreateFrame UIDropDownMenu_Initialize UIDropDownMenu_CreateInfo UIDROPDOWNMENU_OPEN_MENU ToggleDropDownMenu CloseDropDownMenus DropDownList1
+-- Access pH brand colors
+local pH_Colors = _G.pH_Colors
 
 local GoldPH_History_Filters = {
     parent = nil,
@@ -105,8 +107,10 @@ function GoldPH_History_Filters:CreateDropdownButton(parent, text, width)
         edgeSize = 12,
         insets = {left = 3, right = 3, top = 3, bottom = 3}
     })
-    btn:SetBackdropColor(0.1, 0.1, 0.1, 1)
-    btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+    local PH_BG_DARK = pH_Colors.BG_DARK
+    local PH_BORDER_BRONZE = pH_Colors.BORDER_BRONZE
+    btn:SetBackdropColor(PH_BG_DARK[1], PH_BG_DARK[2], PH_BG_DARK[3], 0.90)
+    btn:SetBackdropBorderColor(PH_BORDER_BRONZE[1], PH_BORDER_BRONZE[2], PH_BORDER_BRONZE[3], 0.70)
 
     local btnText = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     btnText:SetPoint("CENTER")
@@ -118,7 +122,8 @@ function GoldPH_History_Filters:CreateDropdownButton(parent, text, width)
     -- Slightly higher and more inset for better alignment
     arrow:SetPoint("RIGHT", btn, "RIGHT", -6, 1)
     arrow:SetText("v")
-    arrow:SetTextColor(0.8, 0.8, 0.8)  -- Light gray for visibility
+    local PH_TEXT_MUTED = pH_Colors.TEXT_MUTED
+    arrow:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
 
     return btn
 end
