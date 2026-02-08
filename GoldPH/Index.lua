@@ -97,24 +97,35 @@ function GoldPH_Index:Build()
     -- Temporary storage for zone aggregates
     local zoneTotals = {}  -- [zone] -> {totalPerHourSum, count, bestPerHour, bestSessionId, nodesSum, nodesCount, bestNodes}
 
+    -- Track processed session IDs to prevent duplicates
+    local processedSessions = {}
+
     -- Scan all sessions (skip active session)
     for sessionId, session in pairs(GoldPH_DB_Account.sessions) do
-        -- Skip if this is the active session (should not be in history)
-        local shouldProcess = true
-        if GoldPH_DB_Account.activeSession and GoldPH_DB_Account.activeSession.id == sessionId then
-            shouldProcess = false
-        end
-
-        -- Get metrics using SessionManager (source of truth)
-        local metrics
-        if shouldProcess then
-            metrics = GoldPH_SessionManager:GetMetrics(session)
-            if not metrics then
+        -- Skip if already processed (prevent duplicates)
+        if processedSessions[sessionId] then
+            if GoldPH_DB_Account and GoldPH_DB_Account.debug and GoldPH_DB_Account.debug.verbose then
+                print(string.format("[GoldPH Index] Warning: Duplicate session ID %d detected, skipping", sessionId))
+            end
+        else
+            processedSessions[sessionId] = true
+            
+            -- Skip if this is the active session (should not be in history)
+            local shouldProcess = true
+            if GoldPH_DB_Account.activeSession and GoldPH_DB_Account.activeSession.id == sessionId then
                 shouldProcess = false
             end
-        end
 
-        if shouldProcess then
+            -- Get metrics using SessionManager (source of truth)
+            local metrics
+            if shouldProcess then
+                metrics = GoldPH_SessionManager:GetMetrics(session)
+                if not metrics then
+                    shouldProcess = false
+                end
+            end
+
+            if shouldProcess then
             -- Build character key (use session metadata for cross-character filter; fallback for old sessions)
             local charKey = GetCharKey(
                 session.character or UnitName("player") or "Unknown",
@@ -298,7 +309,8 @@ function GoldPH_Index:Build()
                     zt.bestNodes = nodesPerHour
                 end
             end
-        end
+            end  -- Close shouldProcess
+        end  -- Close processedSessions check
     end
 
     -- Finalize item aggregates (compute avgValueEach)
@@ -325,7 +337,18 @@ function GoldPH_Index:Build()
         }
     end
 
-    -- Build sorted arrays
+    -- Build sorted arrays (deduplicate sessionIds first)
+    -- Create a set to track seen session IDs
+    local seen = {}
+    local uniqueSessions = {}
+    for _, sessionId in ipairs(self.sessions) do
+        if not seen[sessionId] then
+            seen[sessionId] = true
+            table.insert(uniqueSessions, sessionId)
+        end
+    end
+    self.sessions = uniqueSessions
+
     -- 1. Sort by totalPerHour descending
     local sortedByTotal = {}
     for _, sessionId in ipairs(self.sessions) do

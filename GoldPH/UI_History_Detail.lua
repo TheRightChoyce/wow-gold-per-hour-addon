@@ -33,6 +33,27 @@ local QualityColors = {
     [5] = {1, 0.5, 0},      -- Legendary (orange)
 }
 
+local METRIC_ICONS = {
+    gold = "Interface\\MoneyFrame\\UI-GoldIcon",
+    xp = "Interface\\Icons\\INV_Misc_Book_11",
+    rep = "Interface\\Icons\\INV_Misc_Ribbon_01",
+    honor = "Interface\\Icons\\inv_bannerpvp_02",
+}
+
+local METRIC_LABELS = {
+    gold = "GOLD / HOUR",
+    xp = "XP / HOUR",
+    rep = "REP / HOUR",
+    honor = "HONOR / HOUR",
+}
+
+local METRIC_COLORS = {
+    gold = pH_Colors.METRIC_GOLD,
+    xp = pH_Colors.METRIC_XP,
+    rep = pH_Colors.METRIC_REP,
+    honor = pH_Colors.METRIC_HONOR,
+}
+
 --------------------------------------------------
 -- Initialize
 --------------------------------------------------
@@ -251,6 +272,118 @@ local function FormatFriendlyDate(timestamp)
 end
 
 --------------------------------------------------
+-- Metric history helpers (expanded cards)
+--------------------------------------------------
+local function GetMetricHistory(session)
+    return session and session.metricHistory or nil
+end
+
+local function GetMetricBuffer(history, metricKey)
+    if not history or not history.metrics then return nil end
+    return history.metrics[metricKey]
+end
+
+local function GetBufferSample(buffer, offsetFromLatest)
+    if not buffer or buffer.count == 0 then return nil end
+    if offsetFromLatest >= buffer.count then return nil end
+    local index = buffer.head - offsetFromLatest
+    if index <= 0 then
+        index = index + buffer.capacity
+    end
+    return buffer.samples[index]
+end
+
+local function ComputeTrend(buffer, windowSize, thresholdPct)
+    if not buffer or buffer.count < (windowSize * 2) then
+        return "-"
+    end
+    local sumA = 0
+    local sumB = 0
+    for i = 0, windowSize - 1 do
+        sumA = sumA + (GetBufferSample(buffer, i) or 0)
+        sumB = sumB + (GetBufferSample(buffer, i + windowSize) or 0)
+    end
+    local avgA = sumA / windowSize
+    local avgB = sumB / windowSize
+    if avgB == 0 then
+        return "-"
+    end
+    local deltaPct = (avgA - avgB) / math.abs(avgB)
+    if deltaPct >= thresholdPct then
+        return "^"
+    elseif deltaPct <= -thresholdPct then
+        return "v"
+    end
+    return "-"
+end
+
+local function ComputeStability(buffer, windowSize)
+    if not buffer or buffer.count < windowSize then
+        return "Stable"
+    end
+    local sum = 0
+    for i = 0, windowSize - 1 do
+        sum = sum + (GetBufferSample(buffer, i) or 0)
+    end
+    local mean = sum / windowSize
+    if mean == 0 then
+        return "Stable"
+    end
+    local variance = 0
+    for i = 0, windowSize - 1 do
+        local v = (GetBufferSample(buffer, i) or 0) - mean
+        variance = variance + (v * v)
+    end
+    local stddev = math.sqrt(variance / windowSize)
+    local cv = stddev / math.abs(mean)
+    if cv <= 0.10 then
+        return "Stable"
+    elseif cv <= 0.25 then
+        return "Volatile"
+    end
+    return "Highly Volatile"
+end
+
+local function ComputePeak(buffer, maxSamples)
+    if not buffer or buffer.count == 0 then return 0 end
+    local peak = 0
+    local count = buffer.count
+    if maxSamples and maxSamples < count then
+        count = maxSamples
+    end
+    for i = 0, count - 1 do
+        local v = GetBufferSample(buffer, i) or 0
+        if v > peak then
+            peak = v
+        end
+    end
+    return peak
+end
+
+local function FormatMetricRate(metricKey, rate)
+    if metricKey == "gold" then
+        return GoldPH_Ledger:FormatMoneyShort(rate) .. "/hr"
+    end
+    if metricKey == "xp" or metricKey == "honor" then
+        if rate >= 1000 then
+            return string.format("%.1fk/hr", rate / 1000)
+        end
+        return string.format("%d/hr", rate)
+    end
+    if metricKey == "rep" then
+        return string.format("%d/hr", rate)
+    end
+    return tostring(rate)
+end
+
+local function FormatMetricTotal(metricKey, total)
+    if metricKey == "gold" then
+        return GoldPH_Ledger:FormatMoney(total)
+    end
+    return tostring(total)
+end
+
+--------------------------------------------------
 -- Render Summary Tab
 --------------------------------------------------
 function GoldPH_History_Detail:RenderSummaryTab()
@@ -262,7 +395,367 @@ function GoldPH_History_Detail:RenderSummaryTab()
 
     local session = self.currentSession
     local metrics = self.currentMetrics
+    local cfg = GoldPH_Settings and GoldPH_Settings.metricCards or {}
+    local showInactive = cfg.showInactive == true
+    local sparklineMinutes = cfg.sparklineMinutes or 15
     local yOffset = -10
+
+    local headerText = scrollChild.headerText
+    if not headerText then
+        headerText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        scrollChild.headerText = headerText
+    end
+    headerText:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
+    headerText:SetText("Session #" .. session.id .. " - " .. (session.zone or "Unknown"))
+    headerText:SetTextColor(pH_Colors.ACCENT_GOLD[1], pH_Colors.ACCENT_GOLD[2], pH_Colors.ACCENT_GOLD[3])
+    headerText:Show()
+    yOffset = yOffset - 20
+
+    local subText = scrollChild.subText
+    if not subText then
+        subText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        scrollChild.subText = subText
+    end
+    subText:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
+    subText:SetText(string.format("Started %s  |  Duration %s",
+        FormatFriendlyDate(session.startedAt),
+        GoldPH_SessionManager:FormatDuration(metrics.durationSec)))
+    subText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+    subText:Show()
+    yOffset = yOffset - 20
+
+    local metricContainer = scrollChild.metricContainer
+    if not metricContainer then
+        metricContainer = CreateFrame("Frame", nil, scrollChild)
+        scrollChild.metricContainer = metricContainer
+    end
+    metricContainer:ClearAllPoints()
+    metricContainer:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
+    metricContainer:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -10, yOffset)
+    metricContainer:Show()
+
+    local history = GetMetricHistory(session)
+    local metricData = {}
+    local metricOrder = { "gold", "xp", "rep", "honor" }
+    local metricMap = {}
+
+    local function AddMetric(metricKey, isActive, rate, total)
+        -- Always add all 4 metrics, even if no data
+        local buffer = GetMetricBuffer(history, metricKey)
+        local maxSamples = nil
+        if history and history.sampleInterval then
+            maxSamples = math.floor((sparklineMinutes * 60) / history.sampleInterval)
+            if maxSamples <= 0 then maxSamples = nil end
+        end
+        local peak = buffer and ComputePeak(buffer, maxSamples) or rate
+        local trend = ComputeTrend(buffer, 4, 0.08)
+        local stability = ComputeStability(buffer, 8)
+        local data = {
+            key = metricKey,
+            label = METRIC_LABELS[metricKey],
+            icon = METRIC_ICONS[metricKey],
+            color = METRIC_COLORS[metricKey],
+            rate = rate or 0,
+            total = total or 0,
+            peak = peak or 0,
+            trend = trend,
+            stability = stability,
+            buffer = buffer,
+            maxSamples = maxSamples,
+            isActive = isActive,
+        }
+        table.insert(metricData, data)
+        metricMap[metricKey] = data
+    end
+
+    -- Always show all 4 metric cards
+    AddMetric("gold", true, metrics.totalPerHour or 0, metrics.totalValue or 0)
+    AddMetric("xp", metrics.xpEnabled and metrics.xpGained > 0, metrics.xpPerHour or 0, metrics.xpGained or 0)
+    AddMetric("rep", metrics.repEnabled and metrics.repGained > 0, metrics.repPerHour or 0, metrics.repGained or 0)
+    AddMetric("honor", metrics.honorEnabled and metrics.honorGained > 0, metrics.honorPerHour or 0, metrics.honorGained or 0)
+
+    local containerWidth = (frame:GetWidth() > 0 and frame:GetWidth() or 380) - 20
+    local cardGap = 10
+    local cardHeight = 110
+    local cardWidth = containerWidth
+    if #metricData > 1 then
+        cardWidth = math.floor((containerWidth - cardGap) / 2)
+    else
+        cardWidth = math.min(260, containerWidth)
+    end
+
+    local function EnsureSparkline(frame, barCount)
+        if frame.bars then return end
+        frame.bars = {}
+        frame.barCount = barCount
+        for i = 1, barCount do
+            local bar = frame:CreateTexture(nil, "ARTWORK")
+            bar:SetColorTexture(1, 1, 1, 0.7)
+            frame.bars[i] = bar
+        end
+    end
+
+    local function UpdateSparkline(frame, buffer, barColor, height, maxSamples)
+        if not frame or not frame.bars then return end
+        local barCount = frame.barCount or 12
+        local width = frame:GetWidth()
+        local gap = 2
+        local barWidth = math.max(1, math.floor((width - (gap * (barCount - 1))) / barCount))
+        local maxValue = 0
+        local available = buffer and buffer.count or 0
+        if maxSamples and maxSamples < available then
+            available = maxSamples
+        end
+        local span = math.max(1, available)
+        for i = 0, barCount - 1 do
+            local offset = math.floor((i / barCount) * (span - 1))
+            local v = buffer and GetBufferSample(buffer, offset) or 0
+            if v > maxValue then maxValue = v end
+        end
+        if maxValue == 0 then maxValue = 1 end
+        for i = 1, barCount do
+            local offset = math.floor(((barCount - i) / barCount) * (span - 1))
+            local v = buffer and GetBufferSample(buffer, offset) or 0
+            local normalized = math.min(math.max(v / maxValue, 0), 1)
+            local barHeight = math.max(2, math.floor(height * normalized))
+            local bar = frame.bars[i]
+            bar:ClearAllPoints()
+            bar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", (i - 1) * (barWidth + gap), 0)
+            bar:SetSize(barWidth, barHeight)
+            bar:SetColorTexture(barColor[1], barColor[2], barColor[3], barColor[4] or 0.85)
+            bar:Show()
+        end
+    end
+
+    local function EnsureCard(metricKey)
+        scrollChild.metricCards = scrollChild.metricCards or {}
+        local card = scrollChild.metricCards[metricKey]
+        if card then
+            return card
+        end
+        card = CreateFrame("Button", nil, metricContainer, "BackdropTemplate")
+        card:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true,
+            tileSize = 16,
+            edgeSize = 12,
+            insets = {left = 3, right = 3, top = 3, bottom = 3},
+        })
+        card:SetBackdropColor(pH_Colors.BG_DARK[1], pH_Colors.BG_DARK[2], pH_Colors.BG_DARK[3], 0.85)
+        card:SetBackdropBorderColor(pH_Colors.BORDER_BRONZE[1], pH_Colors.BORDER_BRONZE[2], pH_Colors.BORDER_BRONZE[3], 0.9)
+
+        local icon = card:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(16, 16)
+        icon:SetPoint("TOPLEFT", card, "TOPLEFT", 8, -8)
+        card.icon = icon
+
+        local header = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        header:SetPoint("LEFT", icon, "RIGHT", 6, 0)
+        header:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        card.headerText = header
+
+        local rateText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        rateText:SetPoint("TOPLEFT", card, "TOPLEFT", 8, -28)
+        rateText:SetTextColor(pH_Colors.TEXT_PRIMARY[1], pH_Colors.TEXT_PRIMARY[2], pH_Colors.TEXT_PRIMARY[3])
+        card.rateText = rateText
+
+        local totalText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        totalText:SetPoint("TOPLEFT", card, "TOPLEFT", 8, -50)
+        totalText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        card.totalText = totalText
+
+        local peakText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        peakText:SetPoint("LEFT", totalText, "RIGHT", 10, 0)
+        peakText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        card.peakText = peakText
+
+        local trendText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        trendText:SetPoint("TOPRIGHT", card, "TOPRIGHT", -8, -12)
+        trendText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        card.trendText = trendText
+
+        local stabilityText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        stabilityText:SetPoint("TOPRIGHT", card, "TOPRIGHT", -8, -28)
+        stabilityText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        card.stabilityText = stabilityText
+
+        local sparkline = CreateFrame("Frame", nil, card)
+        sparkline:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 8, 6)
+        sparkline:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -8, 6)
+        sparkline:SetHeight(18)
+        EnsureSparkline(sparkline, 12)
+        card.sparkline = sparkline
+
+        card.focusText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        card.focusText:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -8, 6)
+        card.focusText:SetText("[ Focus ]")
+        card.focusText:SetTextColor(pH_Colors.ACCENT_GOLD[1], pH_Colors.ACCENT_GOLD[2], pH_Colors.ACCENT_GOLD[3])
+
+        scrollChild.metricCards[metricKey] = card
+        return card
+    end
+
+    local function UpdateCard(card, data)
+        card.icon:SetTexture(data.icon)
+        card.headerText:SetText(data.label)
+        card.rateText:SetText(FormatMetricRate(data.key, data.rate))
+        card.totalText:SetText("Total: " .. FormatMetricTotal(data.key, data.total))
+        card.peakText:SetText("Peak: " .. FormatMetricRate(data.key, data.peak))
+        card.trendText:SetText("Trend: " .. data.trend)
+        card.stabilityText:SetText(data.stability)
+
+        local color = data.color or pH_Colors.ACCENT_GOLD
+        UpdateSparkline(card.sparkline, data.buffer, color, 18, data.maxSamples)
+
+        card:SetScript("OnClick", function()
+            self.focusMetricKey = data.key
+            self:RenderSummaryTab()
+        end)
+    end
+
+    local function EnsureFocusPanel()
+        local panel = scrollChild.focusPanel
+        if panel then return panel end
+        panel = CreateFrame("Frame", nil, scrollChild, "BackdropTemplate")
+        panel:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true,
+            tileSize = 16,
+            edgeSize = 14,
+            insets = {left = 4, right = 4, top = 4, bottom = 4},
+        })
+        panel:SetBackdropColor(pH_Colors.BG_PARCHMENT[1], pH_Colors.BG_PARCHMENT[2], pH_Colors.BG_PARCHMENT[3], 0.9)
+        panel:SetBackdropBorderColor(pH_Colors.BORDER_BRONZE[1], pH_Colors.BORDER_BRONZE[2], pH_Colors.BORDER_BRONZE[3], 1)
+
+        panel.title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        panel.title:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -10)
+        panel.title:SetTextColor(pH_Colors.TEXT_PRIMARY[1], pH_Colors.TEXT_PRIMARY[2], pH_Colors.TEXT_PRIMARY[3])
+
+        panel.stats = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        panel.stats:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -32)
+        panel.stats:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+
+        panel.sparkline = CreateFrame("Frame", nil, panel)
+        panel.sparkline:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -58)
+        panel.sparkline:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -10, -58)
+        panel.sparkline:SetHeight(36)
+        EnsureSparkline(panel.sparkline, 24)
+
+        panel.breakdown = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        panel.breakdown:SetPoint("TOPLEFT", panel.sparkline, "BOTTOMLEFT", 0, -8)
+        panel.breakdown:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+
+        panel.backBtn = CreateFrame("Button", nil, panel, "BackdropTemplate")
+        panel.backBtn:SetSize(50, 18)
+        panel.backBtn:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 10, 8)
+        panel.backBtn:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true,
+            tileSize = 16,
+            edgeSize = 8,
+            insets = {left = 2, right = 2, top = 2, bottom = 2},
+        })
+        panel.backBtn:SetBackdropColor(pH_Colors.BG_DARK[1], pH_Colors.BG_DARK[2], pH_Colors.BG_DARK[3], 0.8)
+        panel.backBtn:SetBackdropBorderColor(pH_Colors.DIVIDER[1], pH_Colors.DIVIDER[2], pH_Colors.DIVIDER[3], 0.6)
+        panel.backBtnText = panel.backBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        panel.backBtnText:SetPoint("CENTER")
+        panel.backBtnText:SetText("Back")
+        panel.backBtn:SetScript("OnClick", function()
+            self.focusMetricKey = nil
+            self:RenderSummaryTab()
+        end)
+
+        scrollChild.focusPanel = panel
+        return panel
+    end
+
+    local function ShowFocusPanel(data)
+        local panel = EnsureFocusPanel()
+        panel:ClearAllPoints()
+        panel:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
+        panel:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -10, yOffset)
+        panel:SetHeight(170)
+        panel:Show()
+
+        panel.title:SetText("Focus: " .. (data.label or "Metric"))
+        panel.stats:SetText(string.format("%s  |  Total %s  |  Peak %s  |  %s",
+            FormatMetricRate(data.key, data.rate),
+            FormatMetricTotal(data.key, data.total),
+            FormatMetricRate(data.key, data.peak),
+            data.stability or "Stable"))
+        UpdateSparkline(panel.sparkline, data.buffer, data.color or pH_Colors.ACCENT_GOLD, 36, data.maxSamples)
+
+        if data.key == "gold" and metrics.totalValue and metrics.totalValue > 0 then
+            local cashPct = math.floor((metrics.cash / metrics.totalValue) * 100)
+            local expectedPct = 100 - cashPct
+            panel.breakdown:SetText(string.format("Breakdown: Cash %d%% | Expected %d%%", cashPct, expectedPct))
+            panel.breakdown:Show()
+        else
+            panel.breakdown:SetText("")
+            panel.breakdown:Hide()
+        end
+    end
+
+    if self.focusMetricKey and metricMap[self.focusMetricKey] then
+        metricContainer:Hide()
+        ShowFocusPanel(metricMap[self.focusMetricKey])
+        scrollChild:SetHeight(math.abs(yOffset) + 190)
+        return
+    end
+
+    if scrollChild.focusPanel then
+        scrollChild.focusPanel:Hide()
+    end
+
+    -- Always show all 4 metric cards (even if no data)
+    for _, metricKey in ipairs(metricOrder) do
+        local card = EnsureCard(metricKey)
+        local data = metricMap[metricKey]
+        if data then
+            card:SetSize(cardWidth, cardHeight)
+            card:Show()
+            UpdateCard(card, data)
+        else
+            -- Create empty data for missing metrics
+            local emptyData = {
+                key = metricKey,
+                label = METRIC_LABELS[metricKey],
+                icon = METRIC_ICONS[metricKey],
+                color = METRIC_COLORS[metricKey],
+                rate = 0,
+                total = 0,
+                peak = 0,
+                trend = "-",
+                stability = "Stable",
+                buffer = nil,
+                maxSamples = nil,
+                isActive = false,
+            }
+            card:SetSize(cardWidth, cardHeight)
+            card:Show()
+            UpdateCard(card, emptyData)
+        end
+    end
+
+    -- Layout cards in 2x2 grid (always 4 cards)
+    for i, metricKey in ipairs(metricOrder) do
+        local card = scrollChild.metricCards[metricKey]
+        if card then
+            local row = math.floor((i - 1) / 2)
+            local col = (i - 1) % 2
+            card:ClearAllPoints()
+            card:SetPoint("TOPLEFT", metricContainer, "TOPLEFT",
+                col * (cardWidth + cardGap),
+                -(row * (cardHeight + cardGap)))
+        end
+    end
+
+    local containerHeight = (2 * cardHeight) + cardGap  -- Always 2 rows
+    metricContainer:SetHeight(containerHeight)
+    yOffset = yOffset - containerHeight - 10
 
     -- Helper function to add section header
     local function AddHeader(text)
@@ -295,11 +788,6 @@ function GoldPH_History_Detail:RenderSummaryTab()
         yOffset = yOffset - 18
         return labelText, valueText
     end
-
-    -- Session Info (compact)
-    AddHeader("Session #" .. session.id .. " - " .. (session.zone or "Unknown"))
-    AddRow("Started", FormatFriendlyDate(session.startedAt), pH_Colors.TEXT_MUTED)
-    AddRow("Duration", GoldPH_SessionManager:FormatDuration(metrics.durationSec))
 
     yOffset = yOffset - 10
 
