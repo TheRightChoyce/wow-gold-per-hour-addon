@@ -203,8 +203,8 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
             }
         end
 
-        -- Ensure active session has duration tracking fields
-        local session = GoldPH_DB_Account.activeSession
+        -- Ensure active session has duration tracking fields (only for this character's session)
+        local session = GoldPH_SessionManager:GetActiveSession()
         if session then
             local wasNewLogin = false
             if session.accumulatedDuration == nil then
@@ -227,8 +227,8 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
             end
         end
 
-        -- Auto-restore HUD visibility and state if session is active
-        if GoldPH_DB_Account.activeSession then
+        -- Auto-restore HUD visibility and state if this character has an active session
+        if GoldPH_SessionManager:GetActiveSession() then
             if GoldPH_Settings.hudVisible then
                 GoldPH_HUD:Show()
                 GoldPH_HUD:ApplyMinimizeState()
@@ -237,8 +237,8 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
             end
         end
     elseif event == "PLAYER_LOGOUT" then
-        -- Fold the current login segment into the session accumulator on logout
-        local session = GoldPH_DB_Account.activeSession
+        -- Fold the current login segment into the session accumulator on logout (only for this character's session)
+        local session = GoldPH_SessionManager:GetActiveSession()
         if session and session.currentLoginAt then
             local now = time()
             local segmentDuration = now - session.currentLoginAt
