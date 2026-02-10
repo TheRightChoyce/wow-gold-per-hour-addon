@@ -1,5 +1,7 @@
 # GoldPH History UI - Next Phases Roadmap
 
+> Note: Metric-card trend/stability indicators in HUD/History summary were removed from the current implementation. Any trend mentions here refer to future roadmap concepts (for example, price-delta indicators), not active summary-card trend UI.
+
 ## Current Status: Phases 1-4 Complete ✅
 
 The core framework is fully functional. Users can browse sessions, filter, sort, and view comprehensive summaries.

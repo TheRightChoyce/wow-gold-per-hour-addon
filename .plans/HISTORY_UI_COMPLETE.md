@@ -1,5 +1,7 @@
 # GoldPH History UI - Implementation Complete! 🎉
 
+> Note: Metric-card trend/stability indicators in HUD/History summary were removed from the current implementation. Any trend mentions here are historical or future-oriented (for example, compare/analytics ideas), not active summary-card trend UI.
+
 ## Overview
 
 The GoldPH History UI is now **fully functional** with all core features implemented and polished. Users can browse, filter, and analyze all historical farming sessions with comprehensive metrics and comparisons.

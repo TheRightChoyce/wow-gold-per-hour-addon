@@ -293,57 +293,6 @@ local function GetBufferSample(buffer, offsetFromLatest)
     return buffer.samples[index]
 end
 
-local function ComputeTrend(buffer, windowSize, thresholdPct)
-    if not buffer or buffer.count < (windowSize * 2) then
-        return "-"
-    end
-    local sumA = 0
-    local sumB = 0
-    for i = 0, windowSize - 1 do
-        sumA = sumA + (GetBufferSample(buffer, i) or 0)
-        sumB = sumB + (GetBufferSample(buffer, i + windowSize) or 0)
-    end
-    local avgA = sumA / windowSize
-    local avgB = sumB / windowSize
-    if avgB == 0 then
-        return "-"
-    end
-    local deltaPct = (avgA - avgB) / math.abs(avgB)
-    if deltaPct >= thresholdPct then
-        return "^"
-    elseif deltaPct <= -thresholdPct then
-        return "v"
-    end
-    return "-"
-end
-
-local function ComputeStability(buffer, windowSize)
-    if not buffer or buffer.count < windowSize then
-        return "Stable"
-    end
-    local sum = 0
-    for i = 0, windowSize - 1 do
-        sum = sum + (GetBufferSample(buffer, i) or 0)
-    end
-    local mean = sum / windowSize
-    if mean == 0 then
-        return "Stable"
-    end
-    local variance = 0
-    for i = 0, windowSize - 1 do
-        local v = (GetBufferSample(buffer, i) or 0) - mean
-        variance = variance + (v * v)
-    end
-    local stddev = math.sqrt(variance / windowSize)
-    local cv = stddev / math.abs(mean)
-    if cv <= 0.10 then
-        return "Stable"
-    elseif cv <= 0.25 then
-        return "Volatile"
-    end
-    return "Highly Volatile"
-end
-
 local function ComputePeak(buffer, maxSamples)
     if not buffer or buffer.count == 0 then return 0 end
     local peak = 0
@@ -448,8 +397,6 @@ function GoldPH_History_Detail:RenderSummaryTab()
             if maxSamples <= 0 then maxSamples = nil end
         end
         local peak = buffer and ComputePeak(buffer, maxSamples) or rate
-        local trend = ComputeTrend(buffer, 4, 0.08)
-        local stability = ComputeStability(buffer, 8)
         local data = {
             key = metricKey,
             label = METRIC_LABELS[metricKey],
@@ -458,8 +405,6 @@ function GoldPH_History_Detail:RenderSummaryTab()
             rate = rate or 0,
             total = total or 0,
             peak = peak or 0,
-            trend = trend,
-            stability = stability,
             buffer = buffer,
             maxSamples = maxSamples,
             isActive = isActive,
@@ -477,7 +422,7 @@ function GoldPH_History_Detail:RenderSummaryTab()
     local containerWidth = (frame:GetWidth() > 0 and frame:GetWidth() or 380) - 20
     local cardGap = 10
     local cardHeight = 110
-    local cardWidth = containerWidth
+    local cardWidth = containerWidth  -- luacheck: ignore 311
     if #metricData > 1 then
         cardWidth = math.floor((containerWidth - cardGap) / 2)
     else
@@ -499,6 +444,43 @@ function GoldPH_History_Detail:RenderSummaryTab()
         if not frame or not frame.bars then return end
         local barCount = frame.barCount or 12
         local width = frame:GetWidth()
+        if not width or width <= 0 then
+            local parent = frame:GetParent()
+            if parent and parent.GetWidth then
+                local insetLeft = frame.insetLeft or 8
+                local insetRight = frame.insetRight or 8
+                width = parent:GetWidth() - insetLeft - insetRight
+            end
+        end
+        if not width or width <= 0 then
+            -- First paint can occur before anchors resolve. Retry once next frame.
+            if C_Timer and C_Timer.After then
+                frame._sparklinePending = {
+                    buffer = buffer,
+                    barColor = barColor,
+                    height = height,
+                    maxSamples = maxSamples,
+                }
+                if not frame._sparklineRetryQueued then
+                    frame._sparklineRetryQueued = true
+                    C_Timer.After(0, function()
+                        if not frame then return end
+                        frame._sparklineRetryQueued = nil
+                        local pending = frame._sparklinePending
+                        if not pending then return end
+                        frame._sparklinePending = nil
+                        UpdateSparkline(
+                            frame,
+                            pending.buffer,
+                            pending.barColor,
+                            pending.height,
+                            pending.maxSamples
+                        )
+                    end)
+                end
+            end
+            return
+        end
         local gap = 2
         local barWidth = math.max(1, math.floor((width - (gap * (barCount - 1))) / barCount))
         local maxValue = 0
@@ -570,27 +552,14 @@ function GoldPH_History_Detail:RenderSummaryTab()
         peakText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
         card.peakText = peakText
 
-        local trendText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        trendText:SetPoint("TOPRIGHT", card, "TOPRIGHT", -8, -12)
-        trendText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
-        card.trendText = trendText
-
-        local stabilityText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        stabilityText:SetPoint("TOPRIGHT", card, "TOPRIGHT", -8, -28)
-        stabilityText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
-        card.stabilityText = stabilityText
-
         local sparkline = CreateFrame("Frame", nil, card)
         sparkline:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 8, 6)
         sparkline:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -8, 6)
         sparkline:SetHeight(18)
+        sparkline.insetLeft = 8
+        sparkline.insetRight = 8
         EnsureSparkline(sparkline, 12)
         card.sparkline = sparkline
-
-        card.focusText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        card.focusText:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -8, 6)
-        card.focusText:SetText("[ Focus ]")
-        card.focusText:SetTextColor(pH_Colors.ACCENT_GOLD[1], pH_Colors.ACCENT_GOLD[2], pH_Colors.ACCENT_GOLD[3])
 
         scrollChild.metricCards[metricKey] = card
         return card
@@ -602,8 +571,6 @@ function GoldPH_History_Detail:RenderSummaryTab()
         card.rateText:SetText(FormatMetricRate(data.key, data.rate))
         card.totalText:SetText("Total: " .. FormatMetricTotal(data.key, data.total))
         card.peakText:SetText("Peak: " .. FormatMetricRate(data.key, data.peak))
-        card.trendText:SetText("Trend: " .. data.trend)
-        card.stabilityText:SetText(data.stability)
 
         local color = data.color or pH_Colors.ACCENT_GOLD
         UpdateSparkline(card.sparkline, data.buffer, color, 18, data.maxSamples)
@@ -613,6 +580,16 @@ function GoldPH_History_Detail:RenderSummaryTab()
             self:RenderSummaryTab()
         end)
     end
+
+    -- Focus panel spacing constants to keep header/sparkline/rows consistent
+    -- and prevent overlap with the bottom border/back button.
+    local FOCUS_BASE_HEIGHT = 178
+    local FOCUS_HEADER_TOP = -120
+    local FOCUS_DIVIDER_TOP = -128
+    local FOCUS_ROW_START = -136
+    local FOCUS_ROW_STEP = 14
+    local FOCUS_ROW_HEIGHT = 14
+    local FOCUS_BOTTOM_CLEARANCE = 34
 
     local function EnsureFocusPanel()
         local panel = scrollChild.focusPanel
@@ -641,11 +618,54 @@ function GoldPH_History_Detail:RenderSummaryTab()
         panel.sparkline:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -58)
         panel.sparkline:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -10, -58)
         panel.sparkline:SetHeight(36)
+        panel.sparkline.insetLeft = 10
+        panel.sparkline.insetRight = 10
         EnsureSparkline(panel.sparkline, 24)
 
         panel.breakdown = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         panel.breakdown:SetPoint("TOPLEFT", panel.sparkline, "BOTTOMLEFT", 0, -8)
         panel.breakdown:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+
+        panel.breakdownHeader = {
+            source = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"),
+            rate = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"),
+            total = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"),
+            pct = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"),
+        }
+        panel.breakdownHeader.source:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, FOCUS_HEADER_TOP)
+        -- Match row column right edges exactly (row frame right is panel right minus 16)
+        panel.breakdownHeader.rate:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -166, FOCUS_HEADER_TOP)
+        panel.breakdownHeader.total:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -76, FOCUS_HEADER_TOP)
+        panel.breakdownHeader.pct:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, FOCUS_HEADER_TOP)
+
+        panel.breakdownHeader.source:SetText("Source")
+        panel.breakdownHeader.rate:SetText("g/hr")
+        panel.breakdownHeader.total:SetText("Total")
+        panel.breakdownHeader.pct:SetText("%")
+        panel.breakdownHeader.source:SetJustifyH("LEFT")
+        panel.breakdownHeader.rate:SetJustifyH("RIGHT")
+        panel.breakdownHeader.total:SetJustifyH("RIGHT")
+        panel.breakdownHeader.pct:SetJustifyH("RIGHT")
+
+        panel.breakdownHeader.source:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        panel.breakdownHeader.rate:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        panel.breakdownHeader.total:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        panel.breakdownHeader.pct:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+
+        -- Divider under header row to improve legibility in lieu of true bold font weight
+        panel.breakdownHeaderDivider = panel:CreateTexture(nil, "BORDER")
+        panel.breakdownHeaderDivider:SetColorTexture(pH_Colors.DIVIDER[1], pH_Colors.DIVIDER[2], pH_Colors.DIVIDER[3], 0.9)
+        panel.breakdownHeaderDivider:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, FOCUS_DIVIDER_TOP)
+        panel.breakdownHeaderDivider:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, FOCUS_DIVIDER_TOP)
+        panel.breakdownHeaderDivider:SetHeight(1)
+
+        panel.breakdownHeader.source:Hide()
+        panel.breakdownHeader.rate:Hide()
+        panel.breakdownHeader.total:Hide()
+        panel.breakdownHeader.pct:Hide()
+        panel.breakdownHeaderDivider:Hide()
+
+        panel.breakdownRows = {}
 
         panel.backBtn = CreateFrame("Button", nil, panel, "BackdropTemplate")
         panel.backBtn:SetSize(50, 18)
@@ -672,37 +692,152 @@ function GoldPH_History_Detail:RenderSummaryTab()
         return panel
     end
 
+    local function AddFocusBreakdownRow(panel, yOffset, label, perHourValue, totalValue, pctValue)
+        local panelWidth = panel:GetWidth()
+        if not panelWidth or panelWidth <= 0 then
+            panelWidth = (scrollChild and scrollChild:GetWidth() and scrollChild:GetWidth() > 0)
+                and (scrollChild:GetWidth() - 20)
+                or 360
+        end
+        local row = CreateFrame("Frame", nil, panel)
+        row:SetSize(panelWidth - 32, 14)
+        row:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, yOffset)
+
+        row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        row.label:SetPoint("LEFT", row, "LEFT", 0, 0)
+        row.label:SetText(label)
+        row.label:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+
+        row.perHour = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        row.perHour:SetPoint("RIGHT", row, "RIGHT", -150, 0)
+        row.perHour:SetJustifyH("RIGHT")
+        row.perHour:SetText(perHourValue)
+        row.perHour:SetTextColor(pH_Colors.TEXT_PRIMARY[1], pH_Colors.TEXT_PRIMARY[2], pH_Colors.TEXT_PRIMARY[3])
+
+        row.total = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        row.total:SetPoint("RIGHT", row, "RIGHT", -60, 0)
+        row.total:SetJustifyH("RIGHT")
+        row.total:SetText(totalValue)
+        row.total:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+
+        row.pct = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        row.pct:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.pct:SetJustifyH("RIGHT")
+        row.pct:SetText(pctValue)
+        row.pct:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+
+        table.insert(panel.breakdownRows, row)
+        return row
+    end
+
     local function ShowFocusPanel(data)
         local panel = EnsureFocusPanel()
         panel:ClearAllPoints()
         panel:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
         panel:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -10, yOffset)
-        panel:SetHeight(170)
         panel:Show()
 
-        panel.title:SetText("Focus: " .. (data.label or "Metric"))
-        panel.stats:SetText(string.format("%s  |  Total %s  |  Peak %s  |  %s",
+        panel.title:SetText(data.label or "Metric")
+        panel.stats:SetText(string.format("%s  |  Total %s",
             FormatMetricRate(data.key, data.rate),
-            FormatMetricTotal(data.key, data.total),
-            FormatMetricRate(data.key, data.peak),
-            data.stability or "Stable"))
+            FormatMetricTotal(data.key, data.total)))
+        if panel.sparkline then
+            local panelWidth = panel:GetWidth()
+            if panelWidth and panelWidth > 0 then
+                panel.sparkline:SetWidth(math.max(1, panelWidth - 20))
+            end
+        end
         UpdateSparkline(panel.sparkline, data.buffer, data.color or pH_Colors.ACCENT_GOLD, 36, data.maxSamples)
 
-        if data.key == "gold" and metrics.totalValue and metrics.totalValue > 0 then
-            local cashPct = math.floor((metrics.cash / metrics.totalValue) * 100)
-            local expectedPct = 100 - cashPct
-            panel.breakdown:SetText(string.format("Breakdown: Cash %d%% | Expected %d%%", cashPct, expectedPct))
+        -- Clear old breakdown rows
+        for _, row in ipairs(panel.breakdownRows) do
+            row:Hide()
+        end
+        panel.breakdownRows = {}
+        if panel.breakdownHeader then
+            panel.breakdownHeader.source:Hide()
+            panel.breakdownHeader.rate:Hide()
+            panel.breakdownHeader.total:Hide()
+            panel.breakdownHeader.pct:Hide()
+            panel.breakdownHeaderDivider:Hide()
+        end
+
+        if data.key == "gold" and session and metrics and metrics.totalValue and metrics.totalValue > 0 then
+            local goldPct = math.floor((metrics.cash / metrics.totalValue) * 100)
+            local expectedPct = 100 - goldPct
+            panel.breakdown:SetText(string.format("Breakdown: Gold %d%% | Expected %d%%", goldPct, expectedPct))
             panel.breakdown:Show()
+            if panel.breakdownHeader then
+                panel.breakdownHeader.source:Show()
+                panel.breakdownHeader.rate:Show()
+                panel.breakdownHeader.total:Show()
+                panel.breakdownHeader.pct:Show()
+                panel.breakdownHeaderDivider:Show()
+            end
+
+            -- Source breakdown (same categories as HUD gold panel)
+            local rawGold = GoldPH_Ledger:GetBalance(session, "Income:LootedCoin") or 0
+            -- NOTE: Ledger posts vendor trash income to Income:ItemsLooted:VendorTrash
+            local vendorTrash = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:VendorTrash") or 0
+            local rareItems = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:RareMulti") or 0
+            local gathering = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:Gathering") or 0
+            local questRewards = GoldPH_Ledger:GetBalance(session, "Income:Quest") or 0
+            local vendorSales = GoldPH_Ledger:GetBalance(session, "Income:VendorSales") or 0
+            local pickpocketCoin = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:Coin") or 0
+            local pickpocketItems = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:Items") or 0
+            local lockboxCoin = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:FromLockbox:Coin") or 0
+            local lockboxItems = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:FromLockbox:Items") or 0
+            local pickpocketTotal = pickpocketCoin + pickpocketItems + lockboxCoin + lockboxItems
+            local totalGold = rawGold + vendorTrash + rareItems + gathering + questRewards + vendorSales + pickpocketTotal
+
+            local durationHours = metrics.durationSec / 3600
+            if durationHours == 0 then durationHours = 1 end
+
+            local categories = {
+                {"Raw Gold", rawGold},
+                {"Quest Rewards", questRewards},
+                {"Vendor Sales", vendorSales},
+                {"Vendor Trash", vendorTrash},
+                {"AH / Rare Items", rareItems},
+                {"Gathering", gathering},
+                {"Pickpocketing", pickpocketTotal},
+            }
+
+            local rowY = FOCUS_ROW_START
+            local rowCount = 0
+            for _, cat in ipairs(categories) do
+                local label, value = cat[1], cat[2]
+                if value > 0 then
+                    local perHour = math.floor(value / durationHours)
+                    local pct = totalGold > 0 and math.floor((value / totalGold) * 100) or 0
+                    AddFocusBreakdownRow(panel, rowY, label,
+                        GoldPH_Ledger:FormatMoneyShort(perHour) .. "/hr",
+                        GoldPH_Ledger:FormatMoney(value),
+                        string.format("%d%%", pct))
+                    rowY = rowY - FOCUS_ROW_STEP
+                    rowCount = rowCount + 1
+                end
+            end
+
+            local rowsHeight = 0
+            if rowCount > 0 then
+                rowsHeight = ((rowCount - 1) * FOCUS_ROW_STEP) + FOCUS_ROW_HEIGHT
+            end
+            local requiredHeight = math.abs(FOCUS_ROW_START) + rowsHeight + FOCUS_BOTTOM_CLEARANCE
+            panel:SetHeight(math.max(FOCUS_BASE_HEIGHT, requiredHeight))
+            return panel:GetHeight() + 20
         else
             panel.breakdown:SetText("")
             panel.breakdown:Hide()
+            panel:SetHeight(FOCUS_BASE_HEIGHT)
+            return panel:GetHeight() + 20
         end
     end
 
     if self.focusMetricKey and metricMap[self.focusMetricKey] then
         metricContainer:Hide()
-        ShowFocusPanel(metricMap[self.focusMetricKey])
-        scrollChild:SetHeight(math.abs(yOffset) + 190)
+        local focusContentHeight = ShowFocusPanel(metricMap[self.focusMetricKey])
+        scrollChild:SetHeight(math.abs(yOffset) + focusContentHeight)
         return
     end
 
@@ -716,6 +851,9 @@ function GoldPH_History_Detail:RenderSummaryTab()
         local data = metricMap[metricKey]
         if data then
             card:SetSize(cardWidth, cardHeight)
+            if card.sparkline then
+                card.sparkline:SetWidth(math.max(1, cardWidth - 16))
+            end
             card:Show()
             UpdateCard(card, data)
         else
@@ -728,13 +866,14 @@ function GoldPH_History_Detail:RenderSummaryTab()
                 rate = 0,
                 total = 0,
                 peak = 0,
-                trend = "-",
-                stability = "Stable",
                 buffer = nil,
                 maxSamples = nil,
                 isActive = false,
             }
             card:SetSize(cardWidth, cardHeight)
+            if card.sparkline then
+                card.sparkline:SetWidth(math.max(1, cardWidth - 16))
+            end
             card:Show()
             UpdateCard(card, emptyData)
         end
@@ -794,13 +933,13 @@ function GoldPH_History_Detail:RenderSummaryTab()
     -- Economic Summary
     AddHeader("Economic Summary")
     AddRow("Total Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.totalPerHour) .. "/hr", pH_Colors.TEXT_MUTED)
-    AddRow("Cash Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.cashPerHour) .. "/hr", pH_Colors.ACCENT_GOOD)
+    AddRow("Gold Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.cashPerHour) .. "/hr", pH_Colors.ACCENT_GOOD)
     AddRow("Expected Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.expectedPerHour) .. "/hr", pH_Colors.TEXT_MUTED)
 
     yOffset = yOffset - 10
 
-    -- Cash Flow Breakdown
-    AddHeader("Cash Flow")
+    -- Gold flow (income / expenses)
+    AddHeader("Income / Expenses")
     AddRow("Looted Coin", GoldPH_Ledger:FormatMoney(metrics.income))
     AddRow("Quest Rewards", GoldPH_Ledger:FormatMoney(metrics.incomeQuest))
     AddRow("Vendor Sales", GoldPH_Ledger:FormatMoney(GoldPH_Ledger:GetBalance(session, "Income:VendorSales")))
@@ -1230,7 +1369,7 @@ function GoldPH_History_Detail:RenderCompareTab()
     )
 
     AddComparisonRow(
-        "Cash g/hr",
+        "Gold g/hr",
         GoldPH_Ledger:FormatMoneyShort(metrics.cashPerHour),
         "N/A",  -- We don't track cash avg in zoneAgg yet
         nil

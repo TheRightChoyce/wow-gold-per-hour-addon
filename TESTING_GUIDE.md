@@ -70,6 +70,7 @@
 - [ ] **Gathering section** (if applicable):
   - [ ] Only shows if session has gathering data
   - [ ] Total Nodes, Nodes/hr
+  - [ ] Gathering tab shows per-node-type breakdown with correct counts and percentages
 - [ ] Content is scrollable if long
 - [ ] Switch between sessions → Detail updates correctly
 - [ ] No errors in console

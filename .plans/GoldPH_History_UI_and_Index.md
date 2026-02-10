@@ -1,6 +1,8 @@
 # GoldPH History Screen — UI & Index Design Plan
 *(Journey-style history, filters, insights, and fast indexing)*
 
+> Note: Metric-card trend/stability indicators in HUD/History summary were removed from the current implementation. Trend mentions in this document refer to historical/future concepts (for example, price trend insights), not active summary-card trend UI.
+
 ---
 
 ## 1. Goals

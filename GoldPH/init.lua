@@ -285,6 +285,7 @@ local function ShowHelp()
     print("|cffffff00/goldph debug holdings|r - Show holdings (Phase 3+)")
     print("|cffffff00/goldph debug prices|r - Show available price sources (TSM, Custom AH)")
     print("|cffffff00/goldph debug pickpocket|r - Show pickpocket statistics (Phase 6)")
+    print("|cffffff00/goldph debug gathering|r - Show gathering node statistics")
     print("|cffffff00/goldph debug dupes|r - Scan for duplicate sessions in database")
     print("|cffffff00/goldph debug purge-dupes [confirm]|r - Remove duplicate sessions (backup first!)")
     print("")
@@ -296,6 +297,7 @@ local function ShowHelp()
     print("|cffffff00/goldph test repair <copper>|r - Inject repair cost (Phase 2+)")
     print("|cffffff00/goldph test lootitem <itemID> <count>|r - Inject looted item (Phase 3+)")
     print("|cffffff00/goldph test vendoritem <itemID> <count>|r - Inject vendor sale (Phase 4+)")
+    print("|cffffff00/goldph test gathernode <name> [count] [copperValueEach]|r - Inject gathering node + value")
     print("======================")
 end
 
@@ -310,7 +312,7 @@ local function HandleCommand(msg)
 
     local debugShortcuts = {
         dump = true, ledger = true, holdings = true, prices = true, pickpocket = true,
-        on = true, off = true, verbose = true,
+        gathering = true, on = true, off = true, verbose = true,
     }
     if debugShortcuts[cmd] then
         table.insert(args, 1, "debug")
@@ -321,6 +323,7 @@ local function HandleCommand(msg)
         local ok, message = GoldPH_SessionManager:StartSession()
         print("[GoldPH] " .. message)
         if ok then
+            GoldPH_Settings.hudMinimized = true  -- New session starts with HUD collapsed
             GoldPH_HUD:Show()
         end
 
@@ -394,13 +397,15 @@ local function HandleCommand(msg)
             GoldPH_Debug:ShowPriceSources()
         elseif subCmd == "pickpocket" then
             GoldPH_Debug:ShowPickpocket()
+        elseif subCmd == "gathering" then
+            GoldPH_Debug:ShowGathering()
         elseif subCmd == "dupes" then
             GoldPH_Debug:ShowDuplicates()
         elseif subCmd == "purge-dupes" then
             local confirm = (args[3] or ""):lower() == "confirm"
             GoldPH_Debug:PurgeDuplicates(confirm)
         else
-            print("[GoldPH] Debug commands: on, off, verbose, dump, ledger, holdings, prices, pickpocket, dupes, purge-dupes")
+            print("[GoldPH] Debug commands: on, off, verbose, dump, ledger, holdings, prices, pickpocket, gathering, dupes, purge-dupes")
         end
 
     elseif cmd == "test" then
@@ -453,8 +458,48 @@ local function HandleCommand(msg)
                     print("[GoldPH] " .. (message or "Failed to inject vendor sale"))
                 end
             end
+        elseif subCmd == "gathernode" then
+            -- Usage: /goldph test gathernode <name> [count] [copperValueEach]
+            -- Last 1-2 numeric args are count and value; everything else is the name
+            if not args[3] then
+                print("[GoldPH] Usage: /goldph test gathernode <name> [count] [copperValueEach]")
+            else
+                -- Walk backwards to peel off numeric trailing args
+                local trailingNums = {}
+                local nameEnd = #args
+                for j = #args, 3, -1 do
+                    if tonumber(args[j]) then
+                        table.insert(trailingNums, 1, tonumber(args[j]))
+                        nameEnd = j - 1
+                    else
+                        break
+                    end
+                end
+                -- Build name from remaining args
+                local nameParts = {}
+                for i = 3, nameEnd do
+                    table.insert(nameParts, args[i])
+                end
+                local nodeName = table.concat(nameParts, " ")
+                if nodeName == "" then
+                    print("[GoldPH] Usage: /goldph test gathernode <name> [count] [copperValueEach]")
+                else
+                    local count = 1
+                    local copperValueEach = nil
+                    if #trailingNums == 1 then
+                        count = trailingNums[1]
+                    elseif #trailingNums >= 2 then
+                        count = trailingNums[1]
+                        copperValueEach = trailingNums[2]
+                    end
+                    local ok, message = GoldPH_Events:InjectGatherNode(nodeName, count, copperValueEach)
+                    if not ok then
+                        print("[GoldPH] " .. (message or "Failed to inject gather node"))
+                    end
+                end
+            end
         else
-            print("[GoldPH] Test commands: run, hud, reset, loot <copper>, repair <copper>, lootitem <itemID> <count>, vendoritem <itemID> <count>")
+            print("[GoldPH] Test commands: run, hud, reset, loot <copper>, repair <copper>, lootitem <itemID> <count>, vendoritem <itemID> <count>, gathernode <name> [count] [copperValueEach]")
         end
 
     elseif cmd == "help" then

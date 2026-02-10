@@ -152,7 +152,7 @@ function GoldPH_History_Filters:ShowSortMenu(button)
 
     local sortOptions = {
         {field = "totalPerHour", label = "Total g/hr"},
-        {field = "cashPerHour", label = "Cash g/hr"},
+        {field = "cashPerHour", label = "Gold g/hr"},
         {field = "expectedPerHour", label = "Expected g/hr"},
         {field = "date", label = "Date"},
         {field = "xpPerHour", label = "XP/Hour"},
