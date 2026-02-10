@@ -134,7 +134,20 @@ function GoldPH_Ledger:GetBalancesMatching(session, pattern)
     return result
 end
 
--- Format copper amount as gold.silver.copper string
+-- Format integer with thousands separator (e.g. 1234567 -> "1,234,567")
+local function FormatWithCommas(n)
+    local s = tostring(math.floor(n))
+    if #s <= 3 then return s end
+    local firstLen = (#s % 3 == 0) and 3 or (#s % 3)
+    local res = s:sub(1, firstLen)
+    for i = firstLen + 1, #s, 3 do
+        res = res .. "," .. s:sub(i, i + 2)
+    end
+    return res
+end
+
+-- Format copper amount as gold.silver.copper string.
+-- When >= 1g: no copper, gold with commas. When < 1g: show silver and copper.
 function GoldPH_Ledger:FormatMoney(copper)
     if not copper or copper == 0 then
         return "0c"
@@ -150,12 +163,15 @@ function GoldPH_Ledger:FormatMoney(copper)
 
     local result
     if gold > 0 then
-        if silver > 0 or copperRem > 0 then
-            result = string.format("%dg %ds %dc", gold, silver, copperRem)
+        -- >= 1g: gold with commas, optional silver; never show copper
+        local goldStr = FormatWithCommas(gold)
+        if silver > 0 then
+            result = string.format("%sg %02ds", goldStr, silver)
         else
-            result = string.format("%dg", gold)
+            result = string.format("%sg", goldStr)
         end
     elseif silver > 0 then
+        -- < 1g: show silver and copper
         if copperRem > 0 then
             result = string.format("%ds %dc", silver, copperRem)
         else
@@ -173,11 +189,12 @@ function GoldPH_Ledger:FormatMoney(copper)
     end
 end
 
--- Format copper amount as shortened string (gold + silver, copper ignored)
--- Used for per-hour rates where precision isn't needed
+-- Format copper amount as shortened string.
+-- Always returns `Xg YYs` (with gold using commas for thousands and two-digit silver),
+-- ignoring copper entirely. Used for per-hour rates and compact displays.
 function GoldPH_Ledger:FormatMoneyShort(copper)
     if not copper or copper == 0 then
-        return "0g"
+        return "0g 00s"
     end
 
     -- Handle negative values
@@ -186,22 +203,12 @@ function GoldPH_Ledger:FormatMoneyShort(copper)
 
     local gold = math.floor(absCopper / 10000)
     local silver = math.floor((absCopper % 10000) / 100)
-    -- Copper is ignored
-
-    local result
-    if gold > 0 then
-        -- Show gold + silver (always show silver with 2 digits for consistency, ignore copper)
-        result = string.format("%dg %02ds", gold, silver)
-    elseif silver > 0 then
-        -- Show silver if less than 1 gold
-        result = string.format("%ds", silver)
-    else
-        -- Very small amount, show as 0g
-        result = "0g"
-    end
+    -- Ignore copper for short format
+    local goldStr = FormatWithCommas(gold)
+    local result = string.format("%sg %02ds", goldStr, silver)
 
     -- Add negative sign if needed, but never for zero values
-    if isNegative and result ~= "0g" then
+    if isNegative and result ~= "0g 00s" then
         return "-" .. result
     else
         return result

@@ -25,10 +25,15 @@ local FRAME_HEIGHT = 180
 -- Bottom padding: 4px (reduced for compact layout)
 -- Total: 12 + 14 + 6 + 18 + 4 = 54px
 local FRAME_HEIGHT_MINI = 54  -- Minimized height with horizontal micro-bars
-local LABEL_X = PADDING
-local VALUE_X = FRAME_WIDTH - PADDING  -- Right edge for right-aligned values
-local ROW_HEIGHT = 14
 local SECTION_GAP = 4
+
+-- Rectangular panel layout (PRD-aligned)
+local FRAME_WIDTH_EXPANDED = 340     -- Wider frame for detailed breakdowns
+local PANEL_FULL_WIDTH = 316         -- 340 - 2*PADDING (12px each side)
+local PANEL_HALF_WIDTH = 155         -- (316 - 6 gap) / 2
+local PANEL_GAP = 6                  -- Gap between panels
+local PANEL_PADDING = 8              -- Internal panel padding
+local MAX_PLAYER_LEVEL = 70          -- TBC max level
 
 -- pH Brand colors (from PH_BRAND_BRIEF.md - Classic-safe)
 local PH_TEXT_PRIMARY = {0.86, 0.82, 0.70}
@@ -72,6 +77,13 @@ local METRIC_ICONS = {
     xp = "Interface\\Icons\\INV_Misc_Book_11",  -- Book icon for learning/XP
     rep = "Interface\\Icons\\INV_Misc_Ribbon_01",  -- Ribbon for reputation
     honor = "Interface\\Icons\\inv_bannerpvp_02",  -- PvP banner (exists in Classic, wowhead 132486)
+}
+
+local METRIC_LABELS = {
+    gold = "GOLD / HOUR",
+    xp = "XP / HOUR",
+    rep = "REP / HOUR",
+    honor = "HONOR / HOUR",
 }
 
 -- Color keys mapping for micro-bar colors
@@ -169,28 +181,31 @@ local function RepositionTiles(isCollapsed)
 
     if isCollapsed then
         -- Horizontal layout: position tiles starting from left edge, below title row
-        -- Position tiles so they don't overflow the top border
+        -- Anchor to hudFrame.TOPLEFT to prevent UI jumping when collapsing/expanding
+        -- Calculate header height: top padding (12px) + title height (~14px) + gap (6px) = 32px
+        local headerHeight = PADDING + 14 + 6  -- 32px total
+        local headerYOffset = -headerHeight
+
         for i, state in ipairs(orderedTiles) do
             state.tile:ClearAllPoints()
             if i == 1 then
-                -- First tile: start at left edge (PADDING), below title row
-                -- Use TOP anchor with negative offset to position below timer
-                state.tile:SetPoint("TOP", hudFrame.headerTimer, "BOTTOM", 0, -6)
-                state.tile:SetPoint("LEFT", hudFrame, "LEFT", PADDING, 0)
+                -- First tile: anchor TOPLEFT to hudFrame.TOPLEFT (same coordinate as HUD frame)
+                -- This ensures no visual jumping when frame size changes
+                state.tile:SetPoint("TOPLEFT", hudFrame, "TOPLEFT", PADDING, headerYOffset)
             else
-                -- Subsequent tiles: position to right of previous tile, aligned at top
+                -- Subsequent tiles: align top with first tile, position to right
                 state.tile:SetPoint("TOP", orderedTiles[1].tile, "TOP", 0, 0)
                 state.tile:SetPoint("LEFT", orderedTiles[i-1].tile, "RIGHT", tileSpacing, 0)
             end
         end
     else
-        -- Expanded layout: centered below header container
+        -- Expanded layout: centered below header timer (headerContainer removed)
         local totalWidth = (tileCount * tileWidth) + ((tileCount - 1) * tileSpacing)
         local startX = -totalWidth / 2 + tileWidth / 2
         for i, state in ipairs(orderedTiles) do
             local xOffset = startX + ((i - 1) * (tileWidth + tileSpacing))
             state.tile:ClearAllPoints()
-            state.tile:SetPoint("TOP", hudFrame.headerContainer, "BOTTOM", xOffset, -8)
+            state.tile:SetPoint("TOP", hudFrame.headerTimer, "BOTTOM", xOffset, -8)
         end
     end
 end
@@ -286,6 +301,209 @@ local function UpdateMicroBars(session, metrics)
 
     -- Reposition tiles horizontally in fixed order (collapsed layout)
     RepositionTiles(true)
+end
+
+--------------------------------------------------
+-- Metric history helpers (for sparklines and cards)
+--------------------------------------------------
+local function GetBufferSample(buffer, offsetFromLatest)
+    if not buffer or buffer.count == 0 then return nil end
+    if offsetFromLatest >= buffer.count then return nil end
+    local index = buffer.head - offsetFromLatest
+    if index <= 0 then
+        index = index + buffer.capacity
+    end
+    return buffer.samples[index]
+end
+
+--------------------------------------------------
+-- Sparkline helper functions (shared between cards and focus panel)
+--------------------------------------------------
+local function EnsureSparkline(frame, barCount)
+    if frame.bars then return end
+    frame.bars = {}
+    frame.barCount = barCount
+    for i = 1, barCount do
+        local bar = frame:CreateTexture(nil, "ARTWORK")
+        bar:SetColorTexture(1, 1, 1, 0.7)
+        frame.bars[i] = bar
+    end
+end
+
+local function UpdateSparkline(frame, buffer, barColor, height, maxSamplesLocal)
+    if not frame or not frame.bars then return end
+    local barCount = frame.barCount or 10
+    local width = frame:GetWidth()
+    if width == 0 then return end
+    local gap = 2
+    local barWidth = math.max(1, math.floor((width - (gap * (barCount - 1))) / barCount))
+    local available = buffer and buffer.count or 0
+    if maxSamplesLocal and maxSamplesLocal < available then
+        available = maxSamplesLocal
+    end
+    local span = math.max(1, available)
+    local maxValue = 0
+    for i = 0, barCount - 1 do
+        local offset = math.floor((i / barCount) * (span - 1))
+        local v = buffer and GetBufferSample(buffer, offset) or 0
+        if v > maxValue then maxValue = v end
+    end
+    if maxValue == 0 then maxValue = 1 end
+    for i = 1, barCount do
+        local offset = math.floor(((barCount - i) / barCount) * (span - 1))
+        local v = buffer and GetBufferSample(buffer, offset) or 0
+        local normalized = math.min(math.max(v / maxValue, 0), 1)
+        local barHeight = math.max(2, math.floor(height * normalized))
+        local bar = frame.bars[i]
+        bar:ClearAllPoints()
+        bar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", (i - 1) * (barWidth + gap), 0)
+        bar:SetSize(barWidth, barHeight)
+        bar:SetColorTexture(barColor[1], barColor[2], barColor[3], barColor[4] or 0.85)
+        bar:Show()
+    end
+end
+
+--------------------------------------------------
+-- Panel Helper Functions
+--------------------------------------------------
+
+-- Create a rectangular panel with header
+local function CreateMetricPanel(parent, width, height)
+    if not parent then
+        print("GoldPH Error: CreateMetricPanel called with nil parent")
+        return nil
+    end
+
+    local panel = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    if not panel then
+        print("GoldPH Error: CreateFrame returned nil")
+        return nil
+    end
+
+    panel:SetSize(width, height)
+    panel:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 10,
+        insets = {left = 3, right = 3, top = 3, bottom = 3},
+    })
+    panel:SetBackdropColor(PH_BG_DARK[1], PH_BG_DARK[2], PH_BG_DARK[3], 0.85)
+    panel:SetBackdropBorderColor(PH_BORDER_BRONZE[1], PH_BORDER_BRONZE[2], PH_BORDER_BRONZE[3], 0.9)
+
+    -- Header row: icon + label + total (right-aligned)
+    panel.icon = panel:CreateTexture(nil, "ARTWORK")
+    panel.icon:SetSize(16, 16)
+    panel.icon:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, -PANEL_PADDING)
+
+    panel.label = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    panel.label:SetPoint("LEFT", panel.icon, "RIGHT", 6, 0)
+    panel.label:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
+
+    -- Total aligned with title row (same vertical as label)
+    panel.totalValue = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    panel.totalValue:SetPoint("TOP", panel.label, "TOP", 0, 0)
+    panel.totalValue:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
+    panel.totalValue:SetJustifyH("RIGHT")
+    panel.totalValue:SetTextColor(PH_TEXT_PRIMARY[1], PH_TEXT_PRIMARY[2], PH_TEXT_PRIMARY[3])
+
+    -- Primary stat: per-hour rate (large font for consistency with History cards)
+    panel.rateText = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    panel.rateText:SetPoint("TOPLEFT", panel.icon, "BOTTOMLEFT", 0, -4)
+    panel.rateText:SetTextColor(PH_TEXT_PRIMARY[1], PH_TEXT_PRIMARY[2], PH_TEXT_PRIMARY[3])
+
+    -- Secondary stat: raw total
+    panel.rawTotal = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    panel.rawTotal:SetPoint("LEFT", panel.rateText, "RIGHT", 8, 0)
+    panel.rawTotal:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
+
+    -- Breakdown rows container
+    panel.breakdownRows = {}
+
+    return panel
+end
+
+-- Ensure metric panels exist (safe to call multiple times)
+local function EnsureMetricPanels()
+    if not hudFrame then
+        return
+    end
+
+    -- Always ensure container exists first
+    if not hudFrame.metricCardContainer then
+        local metricCardContainer = CreateFrame("Frame", nil, hudFrame)
+        -- Position below header timer (headerContainer removed, so -38 instead of -52)
+        metricCardContainer:SetPoint("TOPLEFT", hudFrame, "TOPLEFT", PADDING, -38)
+        metricCardContainer:SetSize(PANEL_FULL_WIDTH, 160)
+        metricCardContainer:Hide()
+        hudFrame.metricCardContainer = metricCardContainer
+    end
+
+    if not hudFrame.metricCards then
+        hudFrame.metricCards = {}
+    end
+
+    -- Get container reference
+    local container = hudFrame.metricCardContainer
+    if not container then
+        print("GoldPH Error: metricCardContainer is nil after creation")
+        return
+    end
+
+    -- Check if all panels already exist
+    if hudFrame.goldPanel and hudFrame.xpPanel and hudFrame.repPanel and hudFrame.honorPanel then
+        return
+    end
+
+    -- Gold Panel (always visible, full width)
+    if not hudFrame.goldPanel then
+        local goldPanel = CreateMetricPanel(container, PANEL_FULL_WIDTH, 140)
+        if goldPanel then
+            goldPanel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+            goldPanel.label:SetText("GOLD")
+            goldPanel.icon:SetTexture(METRIC_ICONS.gold)
+            hudFrame.goldPanel = goldPanel
+        end
+    end
+
+    -- XP Panel (left, conditional on not max level)
+    if not hudFrame.xpPanel and hudFrame.goldPanel then
+        local xpPanel = CreateMetricPanel(container, PANEL_HALF_WIDTH, 80)
+        if xpPanel then
+            xpPanel:SetPoint("TOPLEFT", hudFrame.goldPanel, "BOTTOMLEFT", 0, -PANEL_GAP)
+            xpPanel.label:SetText("XP")
+            xpPanel.icon:SetTexture(METRIC_ICONS.xp)
+            -- Show by default (will be hidden by UpdateXPPanel if at max level)
+            if UnitLevel("player") < MAX_PLAYER_LEVEL then
+                xpPanel:Show()
+            else
+                xpPanel:Hide()
+            end
+            hudFrame.xpPanel = xpPanel
+        end
+    end
+
+    -- Rep Panel (right, always visible)
+    if not hudFrame.repPanel and hudFrame.goldPanel then
+        local repPanel = CreateMetricPanel(container, PANEL_HALF_WIDTH, 80)
+        if repPanel then
+            repPanel:SetPoint("TOPLEFT", hudFrame.goldPanel, "BOTTOMLEFT", PANEL_HALF_WIDTH + PANEL_GAP, -PANEL_GAP)
+            repPanel.label:SetText("Rep")
+            repPanel.icon:SetTexture(METRIC_ICONS.rep)
+            hudFrame.repPanel = repPanel
+        end
+    end
+
+    -- Honor Panel (full width, conditional on honor > 0)
+    if not hudFrame.honorPanel then
+        local honorPanel = CreateMetricPanel(container, PANEL_FULL_WIDTH, 90)
+        if honorPanel then
+            -- Position will be dynamic based on whether XP panel is shown
+            honorPanel.label:SetText("HONOR")
+            honorPanel.icon:SetTexture(METRIC_ICONS.honor)
+            honorPanel:Hide()  -- Hidden by default, shown when honorGained > 0
+            hudFrame.honorPanel = honorPanel
+        end
+    end
 end
 
 -- Initialize HUD
@@ -405,9 +623,11 @@ function GoldPH_HUD:Initialize()
     hudFrame.headerTimer = headerTimer
 
     -- Header container (for backward compatibility, positioned below title row for expanded state)
+    -- Hidden - second line removed per user request
     local headerContainer = CreateFrame("Frame", nil, hudFrame)
     headerContainer:SetPoint("TOP", title, "BOTTOM", 0, -4)
     headerContainer:SetSize(FRAME_WIDTH, 14)  -- Height for one line
+    headerContainer:Hide()  -- Hidden by default - second line removed
     hudFrame.headerContainer = headerContainer
 
     -- Gold portion (for expanded state)
@@ -491,135 +711,74 @@ function GoldPH_HUD:Initialize()
     end
 
     --------------------------------------------------
-    -- Expanded display elements (shown only when expanded)
+    -- Expanded metric cards container
     --------------------------------------------------
-    local yPos = headerYPos - 18 - 4 - 14  -- Title height + gap + headerLine height
+    EnsureMetricPanels()
 
-    -- Separator line (WoW UI style horizontal rule)
-    local sep1 = CreateFrame("Frame", nil, hudFrame)
-    sep1:SetPoint("TOPLEFT", hudFrame, "TOPLEFT", PADDING, yPos - 4)  -- More top padding
-    sep1:SetPoint("TOPRIGHT", hudFrame, "TOPRIGHT", -PADDING, yPos - 4)
-    sep1:SetHeight(1)
-    local sep1Tex = sep1:CreateTexture(nil, "ARTWORK")
-    sep1Tex:SetAllPoints()
-    sep1Tex:SetColorTexture(PH_DIVIDER[1], PH_DIVIDER[2], PH_DIVIDER[3], PH_DIVIDER[4])
-    hudFrame.sep1 = sep1
-    yPos = yPos - ROW_HEIGHT + 2  -- Less bottom padding
+    -- Focus panel (modal overlay for metric drill-down)
+    local focusPanel = CreateFrame("Frame", "GoldPH_FocusPanel", UIParent, "BackdropTemplate")
+    focusPanel:SetSize(380, 240)
+    focusPanel:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    focusPanel:SetFrameStrata("DIALOG")
+    focusPanel:SetFrameLevel(200)
+    focusPanel:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = {left = 4, right = 4, top = 4, bottom = 4},
+    })
+    focusPanel:SetBackdropColor(PH_BG_DARK[1], PH_BG_DARK[2], PH_BG_DARK[3], 0.98)
+    focusPanel:SetBackdropBorderColor(PH_BORDER_BRONZE[1], PH_BORDER_BRONZE[2], PH_BORDER_BRONZE[3], 1)
+    focusPanel:Hide()
+    focusPanel:EnableMouse(true)  -- Block click-through
 
-    -- Helper function to create a label/value row
-    local function CreateRow(labelText, yOffset, isLarge)
-        local font = isLarge and "GameFontNormal" or "GameFontNormalSmall"
-        
-        local label = hudFrame:CreateFontString(nil, "OVERLAY", font)
-        label:SetPoint("TOPLEFT", LABEL_X, yOffset)
-        label:SetJustifyH("LEFT")
-        label:SetText(labelText)
-        
-        local value = hudFrame:CreateFontString(nil, "OVERLAY", font)
-        value:SetPoint("TOPRIGHT", -LABEL_X, yOffset)
-        value:SetJustifyH("RIGHT")
-        value:SetText("0g")
-        
-        return label, value
-    end
+    hudFrame.focusPanel = focusPanel
 
-    -- Gold row
-    local goldLabel, goldValue = CreateRow("Gold", yPos, false)
-    hudFrame.goldLabel = goldLabel
-    hudFrame.goldValue = goldValue
-    yPos = yPos - ROW_HEIGHT
+    -- Add focus panel components
+    focusPanel.icon = focusPanel:CreateTexture(nil, "ARTWORK")
+    focusPanel.icon:SetSize(20, 20)
+    focusPanel.icon:SetPoint("TOPLEFT", focusPanel, "TOPLEFT", 12, -12)
 
-    -- Gold per hour (indented)
-    local goldHrLabel = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    goldHrLabel:SetPoint("TOPLEFT", LABEL_X + 10, yPos)
-    goldHrLabel:SetJustifyH("LEFT")
-    goldHrLabel:SetText("/hr")
-    goldHrLabel:SetTextColor(PH_ACCENT_GOLD_INCOME[1], PH_ACCENT_GOLD_INCOME[2], PH_ACCENT_GOLD_INCOME[3])
-    hudFrame.goldHrLabel = goldHrLabel
+    focusPanel.header = focusPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    focusPanel.header:SetPoint("LEFT", focusPanel.icon, "RIGHT", 8, 0)
+    focusPanel.header:SetTextColor(PH_TEXT_PRIMARY[1], PH_TEXT_PRIMARY[2], PH_TEXT_PRIMARY[3])
 
-    local goldHrValue = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    goldHrValue:SetPoint("TOPRIGHT", -LABEL_X, yPos)
-    goldHrValue:SetJustifyH("RIGHT")
-    goldHrValue:SetText("0g")
-    goldHrValue:SetTextColor(PH_ACCENT_GOLD_INCOME[1], PH_ACCENT_GOLD_INCOME[2], PH_ACCENT_GOLD_INCOME[3])
-    hudFrame.goldHrValue = goldHrValue
-    yPos = yPos - ROW_HEIGHT + 2
+    focusPanel.closeBtn = CreateFrame("Button", nil, focusPanel, "UIPanelCloseButton")
+    focusPanel.closeBtn:SetSize(24, 24)
+    focusPanel.closeBtn:SetPoint("TOPRIGHT", focusPanel, "TOPRIGHT", -4, -4)
+    focusPanel.closeBtn:SetScript("OnClick", function()
+        GoldPH_HUD:HideFocusPanel()
+    end)
 
-    -- Inventory row
-    local invLabel, invValue = CreateRow("Inventory", yPos, false)
-    hudFrame.invLabel = invLabel
-    hudFrame.invValue = invValue
-    yPos = yPos - ROW_HEIGHT
+    focusPanel.statsText = focusPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    focusPanel.statsText:SetPoint("TOPLEFT", focusPanel.icon, "BOTTOMLEFT", 0, -8)
+    focusPanel.statsText:SetPoint("RIGHT", focusPanel, "RIGHT", -12, 0)
+    focusPanel.statsText:SetJustifyH("LEFT")
+    focusPanel.statsText:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
 
-    -- Gathering row
-    local gathLabel, gathValue = CreateRow("Gathering", yPos, false)
-    hudFrame.gathLabel = gathLabel
-    hudFrame.gathValue = gathValue
-    yPos = yPos - ROW_HEIGHT
+    focusPanel.sparklineFrame = CreateFrame("Frame", nil, focusPanel)
+    focusPanel.sparklineFrame:SetPoint("TOPLEFT", focusPanel.statsText, "BOTTOMLEFT", 0, -12)
+    focusPanel.sparklineFrame:SetPoint("RIGHT", focusPanel, "RIGHT", -12, 0)
+    focusPanel.sparklineFrame:SetHeight(50)
+    EnsureSparkline(focusPanel.sparklineFrame, 30)  -- 30 bars for extended view
 
-    -- Expenses row
-    local expLabel, expValue = CreateRow("Expenses", yPos, false)
-    hudFrame.expLabel = expLabel
-    hudFrame.expValue = expValue
-    yPos = yPos - ROW_HEIGHT
+    focusPanel.breakdownText = focusPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    focusPanel.breakdownText:SetPoint("TOPLEFT", focusPanel.sparklineFrame, "BOTTOMLEFT", 0, -12)
+    focusPanel.breakdownText:SetPoint("BOTTOMRIGHT", focusPanel, "BOTTOMRIGHT", -12, 40)
+    focusPanel.breakdownText:SetJustifyH("LEFT")
+    focusPanel.breakdownText:SetJustifyV("TOP")
+    focusPanel.breakdownText:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
 
-    -- Separator line before total (WoW UI style horizontal rule)
-    local sep2 = CreateFrame("Frame", nil, hudFrame)
-    sep2:SetPoint("TOPLEFT", hudFrame, "TOPLEFT", PADDING, yPos - 4)  -- More top padding
-    sep2:SetPoint("TOPRIGHT", hudFrame, "TOPRIGHT", -PADDING, yPos - 4)
-    sep2:SetHeight(1)
-    local sep2Tex = sep2:CreateTexture(nil, "ARTWORK")
-    sep2Tex:SetAllPoints()
-    sep2Tex:SetColorTexture(PH_DIVIDER[1], PH_DIVIDER[2], PH_DIVIDER[3], PH_DIVIDER[4])
-    hudFrame.sep2 = sep2
-    yPos = yPos - ROW_HEIGHT + 2  -- Less bottom padding
+    focusPanel.backBtn = focusPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    focusPanel.backBtn:SetPoint("BOTTOMRIGHT", focusPanel, "BOTTOMRIGHT", -12, 12)
+    focusPanel.backBtn:SetText("[Back]")
+    focusPanel.backBtn:SetTextColor(PH_ACCENT_GOLD_INCOME[1], PH_ACCENT_GOLD_INCOME[2], PH_ACCENT_GOLD_INCOME[3])
 
-    -- Total row (larger font)
-    local totalLabel, totalValue = CreateRow("Total", yPos, true)
-    hudFrame.totalLabel = totalLabel
-    hudFrame.totalValue = totalValue
-    yPos = yPos - ROW_HEIGHT - 2
-
-    -- Total per hour (indented)
-    local totalHrLabel = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    totalHrLabel:SetPoint("TOPLEFT", LABEL_X + 10, yPos)
-    totalHrLabel:SetJustifyH("LEFT")
-    totalHrLabel:SetText("/hr")
-    totalHrLabel:SetTextColor(PH_ACCENT_GOLD_INCOME[1], PH_ACCENT_GOLD_INCOME[2], PH_ACCENT_GOLD_INCOME[3])
-    hudFrame.totalHrLabel = totalHrLabel
-
-    local totalHrValue = hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    totalHrValue:SetPoint("TOPRIGHT", -LABEL_X, yPos)
-    totalHrValue:SetJustifyH("RIGHT")
-    totalHrValue:SetText("0g")
-    totalHrValue:SetTextColor(PH_ACCENT_GOLD_INCOME[1], PH_ACCENT_GOLD_INCOME[2], PH_ACCENT_GOLD_INCOME[3])
-    hudFrame.totalHrValue = totalHrValue
-
-    -- Phase 9: XP/Rep/Honor rows (only shown if enabled; grouped below all gold totals)
-    yPos = yPos - ROW_HEIGHT
-
-    local xpLabel, xpValue = CreateRow("XP/hr", yPos, false)
-    local xpColor = MICROBAR_COLORS.XP.fill
-    xpLabel:SetTextColor(xpColor[1], xpColor[2], xpColor[3])
-    xpValue:SetTextColor(xpColor[1], xpColor[2], xpColor[3])
-    hudFrame.xpLabel = xpLabel
-    hudFrame.xpValue = xpValue
-    yPos = yPos - ROW_HEIGHT
-
-    local repLabel, repValue = CreateRow("Rep/hr", yPos, false)
-    local repColor = MICROBAR_COLORS.REP.fill
-    repLabel:SetTextColor(repColor[1], repColor[2], repColor[3])
-    repValue:SetTextColor(repColor[1], repColor[2], repColor[3])
-    hudFrame.repLabel = repLabel
-    hudFrame.repValue = repValue
-    yPos = yPos - ROW_HEIGHT
-
-    local honorLabel, honorValue = CreateRow("Honor/hr", yPos, false)
-    local honorColor = MICROBAR_COLORS.HONOR.fill
-    honorLabel:SetTextColor(honorColor[1], honorColor[2], honorColor[3])
-    honorValue:SetTextColor(honorColor[1], honorColor[2], honorColor[3])
-    hudFrame.honorLabel = honorLabel
-    hudFrame.honorValue = honorValue
+    local backBtnClickFrame = CreateFrame("Button", nil, focusPanel)
+    backBtnClickFrame:SetAllPoints(focusPanel.backBtn)
+    backBtnClickFrame:SetScript("OnClick", function()
+        GoldPH_HUD:HideFocusPanel()
+    end)
 
     -- Update loop
     hudFrame:SetScript("OnUpdate", function(self, elapsed)
@@ -676,29 +835,517 @@ local function FormatAccountingShort(copper)
     end
 end
 
+-- Format number helper (for XP display)
+local function FormatNumber(num)
+    if not num or num == 0 then
+        return "0"
+    end
+    if num >= 1000000 then
+        return string.format("%.1fM", num / 1000000)
+    elseif num >= 1000 then
+        return string.format("%.1fk", num / 1000)
+    else
+        return tostring(math.floor(num))
+    end
+end
+
+-- Add breakdown row to panel
+local function AddBreakdownRow(panel, yOffset, label, perHourValue, totalValue, pctValue)
+    local row = CreateFrame("Frame", nil, panel)
+    local rowWidth = panel:GetWidth() - 2 * PANEL_PADDING
+    row:SetSize(rowWidth, 14)
+    row:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, yOffset)
+
+    -- Column layout (right-aligned numeric columns, flexible label column)
+    local gap = 6
+    local pctWidth = 30
+    local totalWidth = 84
+    local rateWidth = 74
+    local pctLeft = rowWidth - pctWidth
+    local totalRight = pctLeft - gap
+    local totalLeft = totalRight - totalWidth
+    local rateRight = totalLeft - gap
+    local rateLeft = rateRight - rateWidth
+
+    row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.label:SetPoint("LEFT", row, "LEFT", 0, 0)
+    row.label:SetPoint("RIGHT", row, "LEFT", rateLeft - gap, 0)
+    row.label:SetJustifyH("LEFT")
+    row.label:SetText(label)
+    if row.label.SetWordWrap then
+        row.label:SetWordWrap(false)
+    end
+    row.label:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
+
+    row.perHour = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.perHour:SetPoint("LEFT", row, "LEFT", rateLeft, 0)
+    row.perHour:SetPoint("RIGHT", row, "LEFT", rateRight, 0)
+    row.perHour:SetJustifyH("RIGHT")
+    row.perHour:SetText(perHourValue)
+    row.perHour:SetTextColor(PH_TEXT_PRIMARY[1], PH_TEXT_PRIMARY[2], PH_TEXT_PRIMARY[3])
+
+    row.total = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.total:SetPoint("LEFT", row, "LEFT", totalLeft, 0)
+    row.total:SetPoint("RIGHT", row, "LEFT", totalRight, 0)
+    row.total:SetJustifyH("RIGHT")
+    row.total:SetText(totalValue)
+    row.total:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
+
+    row.pct = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.pct:SetPoint("LEFT", row, "LEFT", pctLeft, 0)
+    row.pct:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.pct:SetJustifyH("RIGHT")
+    row.pct:SetText(pctValue)
+    row.pct:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
+
+    table.insert(panel.breakdownRows, row)
+    return row
+end
+
+-- Add rep breakdown row (label + total only, no per-hour column)
+local function AddRepBreakdownRow(panel, yOffset, label, totalValue)
+    local row = CreateFrame("Frame", nil, panel)
+    row:SetSize(panel:GetWidth() - 2*PANEL_PADDING, 14)
+    row:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, yOffset)
+
+    row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.label:SetPoint("LEFT", row, "LEFT", 0, 0)
+    row.label:SetText(label)
+    row.label:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
+
+    row.total = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.total:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.total:SetText(totalValue)
+    row.total:SetTextColor(PH_TEXT_PRIMARY[1], PH_TEXT_PRIMARY[2], PH_TEXT_PRIMARY[3])
+
+    table.insert(panel.breakdownRows, row)
+    return row
+end
+
+--------------------------------------------------
+-- Metric history helpers (for expanded cards / sparklines)
+--------------------------------------------------
+local function GetMetricHistory(session)
+    return session and session.metricHistory or nil
+end
+
+local function GetMetricBuffer(history, metricKey)
+    if not history or not history.metrics then return nil end
+    return history.metrics[metricKey]
+end
+
+-- Update Gold Panel with breakdown
+local function UpdateGoldPanel(panel, metrics, session)
+    -- Header: Total value (right-aligned)
+    panel.totalValue:SetText(string.format("Total: %s", FormatAccounting(metrics.totalValue)))
+
+    -- Primary: Per-hour rate (large)
+    panel.rateText:SetText(FormatAccountingShort(metrics.totalPerHour) .. "/hr")
+
+    -- Secondary: Raw total
+    panel.rawTotal:SetText(FormatAccounting(metrics.totalValue) .. " (raw)")
+
+    -- Get breakdown values from ledger (use : colon-call with session, not . dot-call with ledger)
+    local rawGold = GoldPH_Ledger:GetBalance(session, "Income:LootedCoin") or 0
+    -- NOTE: Ledger posts vendor trash income to Income:ItemsLooted:VendorTrash
+    local vendorTrash = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:VendorTrash") or 0
+    local rareItems = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:RareMulti") or 0
+    local gathering = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:Gathering") or 0
+    local questRewards = GoldPH_Ledger:GetBalance(session, "Income:Quest") or 0
+    local vendorSales = GoldPH_Ledger:GetBalance(session, "Income:VendorSales") or 0
+
+    -- Pickpocketing total (all 4 sources)
+    local pickpocketCoin = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:Coin") or 0
+    local pickpocketItems = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:Items") or 0
+    local lockboxCoin = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:FromLockbox:Coin") or 0
+    local lockboxItems = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:FromLockbox:Items") or 0
+    local pickpocketTotal = pickpocketCoin + pickpocketItems + lockboxCoin + lockboxItems
+
+    local totalGold = rawGold + vendorTrash + rareItems + gathering + questRewards + vendorSales + pickpocketTotal
+
+    -- Ensure sparkline exists and update it
+    if not panel.sparklineFrame then
+        panel.sparklineFrame = CreateFrame("Frame", nil, panel)
+        panel.sparklineFrame:SetPoint("TOPLEFT", panel.rateText, "BOTTOMLEFT", 0, -4)
+        panel.sparklineFrame:SetPoint("RIGHT", panel, "RIGHT", -PANEL_PADDING, 0)
+        panel.sparklineFrame:SetHeight(18)
+        EnsureSparkline(panel.sparklineFrame, 15)
+    end
+    local history = GetMetricHistory(session)
+    local goldBuffer = GetMetricBuffer(history, "gold")
+    local goldColor = MICROBAR_COLORS.GOLD and MICROBAR_COLORS.GOLD.fill or {1, 0.82, 0, 0.85}
+    local cardCfg = GoldPH_Settings.metricCards
+    local sampleInterval = (history and history.sampleInterval) or (cardCfg and cardCfg.sampleInterval) or 10
+    local sparkMinutes = (cardCfg and cardCfg.sparklineMinutes) or 15
+    local maxSamples = history and math.floor((sparkMinutes * 60) / sampleInterval) or 90
+    UpdateSparkline(panel.sparklineFrame, goldBuffer, goldColor, 18, maxSamples)
+
+    -- Clear old breakdown rows
+    for _, row in ipairs(panel.breakdownRows) do
+        row:Hide()
+    end
+    panel.breakdownRows = {}
+
+    -- Add breakdown rows (only show non-zero values); start below sparkline
+    local rowHeight = 14
+    local rowStep = 14
+    local firstRowOffset = -74  -- Pull line items closer to sparkline
+    local yOffset = firstRowOffset
+    local categories = {
+        {"Raw Gold", rawGold},
+        {"Quest Rewards", questRewards},
+        {"Vendor Sales", vendorSales},
+        {"Vendor Trash", vendorTrash},
+        {"AH / Rare Items", rareItems},
+        {"Gathering", gathering},
+        {"Pickpocketing", pickpocketTotal},
+    }
+
+    local durationHours = metrics.durationSec / 3600
+    if durationHours == 0 then durationHours = 1 end  -- Avoid division by zero
+
+    local rowCount = 0
+    for _, cat in ipairs(categories) do
+        local label, value = cat[1], cat[2]
+        if value > 0 then
+            local perHour = math.floor(value / durationHours)
+            local pct = totalGold > 0 and math.floor((value / totalGold) * 100) or 0
+            AddBreakdownRow(panel, yOffset, label,
+                FormatAccountingShort(perHour) .. "/hr",
+                FormatAccounting(value),
+                string.format("%d%%", pct))
+            yOffset = yOffset - rowStep
+            rowCount = rowCount + 1
+        end
+    end
+    -- If we have session total but no category breakdown (e.g. ledger mismatch), show at least session total
+    if totalGold > 0 and rowCount == 0 then
+        local perHour = durationHours > 0 and math.floor(totalGold / durationHours) or 0
+        AddBreakdownRow(panel, yOffset, "Session total",
+            FormatAccountingShort(perHour) .. "/hr",
+            FormatAccounting(totalGold),
+            "100%")
+        rowCount = 1
+    end
+
+    -- Optional: show compact gathering nodes/hr summary when node data exists
+    if session.gathering and session.gathering.totalNodes and session.gathering.totalNodes > 0 then
+        local nodesPerHour = 0
+        if metrics.durationHours and metrics.durationHours > 0 then
+            nodesPerHour = math.floor(session.gathering.totalNodes / metrics.durationHours)
+        end
+
+        local gatherLabel = string.format(
+            "Nodes: %d (%d/hr)",
+            session.gathering.totalNodes or 0,
+            nodesPerHour
+        )
+
+        AddBreakdownRow(
+            panel,
+            yOffset,
+            gatherLabel,
+            "",
+            "",
+            ""
+        )
+        yOffset = yOffset - rowStep  -- luacheck: ignore 311
+        rowCount = rowCount + 1
+    end
+
+    -- Resize panel to fit all breakdown rows without clipping.
+    local rowsHeight = 0
+    if rowCount > 0 then
+        rowsHeight = ((rowCount - 1) * rowStep) + rowHeight
+    end
+    local contentBottom = math.abs(firstRowOffset) + rowsHeight + 10
+    local goldPanelHeight = contentBottom
+    if goldPanelHeight < 140 then goldPanelHeight = 140 end
+    panel:SetHeight(goldPanelHeight)
+    panel.goldPanelHeight = goldPanelHeight  -- So Update() can read it for container layout
+
+    panel:Show()
+end
+
+-- Update XP Panel
+local function UpdateXPPanel(panel, metrics)
+    -- Always show in expanded mode to maintain middle row layout
+    -- Only hide if player is at max level
+    if UnitLevel("player") >= MAX_PLAYER_LEVEL then
+        panel:Hide()
+        return
+    end
+
+    -- Always show XP panel (even with 0 XP) to maintain layout on fresh start
+    panel:Show()
+
+    local xpGained = metrics.xpGained or 0
+    local xpPerHour = metrics.xpPerHour or 0
+
+    panel.totalValue:SetText(string.format("Total: %s", FormatNumber(xpGained)))
+    panel.rateText:SetText(FormatNumber(xpPerHour) .. "/hr")
+    panel.rawTotal:SetText(string.format("%s XP", FormatNumber(xpGained)))
+
+    -- XP sources (TODO: need to add quest vs mob tracking to SessionManager)
+    -- For now, show placeholder or single total
+    -- Future: show Quest XP and Mob XP with percentages
+end
+
+-- Update Rep Panel
+local function UpdateRepPanel(panel, metrics)
+    local totalRep = metrics.repGained or 0
+    local repHr = metrics.repPerHour or 0
+    local totalStr = totalRep >= 0 and string.format("Total: +%d", totalRep) or string.format("Total: %d", totalRep)
+    local rateStr = repHr >= 0 and string.format("+%d/hr", repHr) or string.format("%d/hr", repHr)
+    panel.totalValue:SetText(totalStr)
+    panel.rateText:SetText(rateStr)
+    panel.rawTotal:SetText("")  -- Clear raw total for rep
+
+    -- Clear old rows
+    for _, row in ipairs(panel.breakdownRows) do
+        row:Hide()
+    end
+    panel.breakdownRows = {}
+
+    -- Show top 2 factions (SessionManager uses .gain per faction, can be negative)
+    local factions = metrics.repTopFactions or {}
+    local yOffset = -44  -- Tighter gap below rate text so 2 rows fit in 80px panel
+
+    for i = 1, math.min(2, #factions) do
+        local faction = factions[i]
+        if not faction then break end
+        local gain = faction.gain or 0  -- .gain from SessionManager (not .gained)
+        local gainStr = gain >= 0 and string.format("+%d", gain) or string.format("%d", gain)
+        AddRepBreakdownRow(panel, yOffset, faction.name or "?", gainStr)
+        yOffset = yOffset - 16
+    end
+
+    -- "+X more..." text if more than 2 factions
+    if #factions > 2 then
+        local moreText = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        moreText:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, yOffset)
+        moreText:SetText(string.format("+%d more…", #factions - 2))
+        moreText:SetTextColor(PH_TEXT_MUTED[1], PH_TEXT_MUTED[2], PH_TEXT_MUTED[3])
+        -- Add to breakdown rows so it gets cleaned up next update
+        table.insert(panel.breakdownRows, {Hide = function() moreText:Hide() end, moreText = moreText})
+    end
+
+    panel:Show()
+end
+
+-- Update Honor Panel
+local function UpdateHonorPanel(panel, metrics)
+    if not metrics.honorEnabled or (metrics.honorGained or 0) == 0 then
+        panel:Hide()
+        return
+    end
+
+    panel.totalValue:SetText(string.format("Total: %d", metrics.honorGained))
+    panel.rateText:SetText(string.format("%d/hr", metrics.honorPerHour or 0))
+    panel.rawTotal:SetText(string.format("%d honor", metrics.honorGained))
+
+    -- Honor breakdown (TODO: need to add BG vs kills tracking to SessionManager)
+    -- For now, show placeholder
+    -- Future: show "Battleground / Bonus Honor" and "Honor from Kills" with percentages
+
+    -- Reposition panel based on whether XP panel is shown
+    panel:ClearAllPoints()
+    if hudFrame.xpPanel:IsShown() then
+        panel:SetPoint("TOPLEFT", hudFrame.xpPanel, "BOTTOMLEFT", 0, -PANEL_GAP)
+    else
+        panel:SetPoint("TOPLEFT", hudFrame.goldPanel, "BOTTOMLEFT", 0, -PANEL_GAP)
+    end
+
+    panel:Show()
+end
+
+local function ComputePeak(buffer, maxSamples)
+    if not buffer or buffer.count == 0 then return 0 end
+    local peak = 0
+    local count = buffer.count
+    if maxSamples and maxSamples < count then
+        count = maxSamples
+    end
+    for i = 0, count - 1 do
+        local v = GetBufferSample(buffer, i) or 0
+        if v > peak then
+            peak = v
+        end
+    end
+    return peak
+end
+
+local function FormatRateForCard(metricKey, rate)
+    if metricKey == "gold" then
+        return FormatAccountingShort(rate) .. "/hr"
+    end
+    if metricKey == "xp" or metricKey == "honor" then
+        if rate >= 1000 then
+            return string.format("%.1fk/hr", rate / 1000)
+        end
+        return string.format("%d/hr", rate)
+    end
+    if metricKey == "rep" then
+        return string.format("%d/hr", rate)
+    end
+    return tostring(rate)
+end
+
+local function FormatTotalForCard(metricKey, total)
+    if metricKey == "gold" then
+        return FormatAccounting(total)
+    end
+    return tostring(total)
+end
+
 -- Dynamically adjust HUD height based on the last visible row
-local function UpdateHudHeight(lastElement)
-    if not hudFrame or not lastElement or not lastElement:IsShown() then
-        return
+-- Calculate grid positions for metric cards based on count
+local function CalculateCardPositions(metricCount)
+    local positions = {}
+
+    if metricCount == 1 then
+        -- Single card: centered in 242px container
+        positions[1] = { x = 62, y = 0 }
+    elseif metricCount == 2 then
+        -- Two cards: horizontal row
+        positions[1] = { x = 0, y = 0 }
+        positions[2] = { x = 125, y = 0 }
+    elseif metricCount == 3 then
+        -- Three cards: 2x2 grid with bottom-right empty
+        positions[1] = { x = 0, y = 0 }
+        positions[2] = { x = 125, y = 0 }
+        positions[3] = { x = 0, y = -108 }
+    else
+        -- Four cards: full 2x2 grid
+        positions[1] = { x = 0, y = 0 }
+        positions[2] = { x = 125, y = 0 }
+        positions[3] = { x = 0, y = -108 }
+        positions[4] = { x = 125, y = -108 }
     end
 
-    local top = hudFrame:GetTop()
-    local bottom = lastElement:GetBottom()
+    return positions
+end
 
-    if not top or not bottom then
-        return
+-- Get metric breakdown for focus panel
+local function GetMetricBreakdown(metricKey, session, metrics)
+    if metricKey == "gold" then
+        -- Parse Income:ItemsLooted:* accounts from ledger
+    local vendorTrash = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:VendorTrash") or 0
+    local rareMulti = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:RareMulti") or 0
+    local gathering = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:Gathering") or 0
+        local total = vendorTrash + rareMulti + gathering
+
+        if total > 0 then
+            local pctVendor = math.floor((vendorTrash / total) * 100)
+            local pctRare = math.floor((rareMulti / total) * 100)
+            local pctGath = math.floor((gathering / total) * 100)
+            return string.format("Loot Breakdown: Vendor %d%% | Rare %d%% | Gathering %d%%",
+                pctVendor, pctRare, pctGath)
+        end
+    elseif metricKey == "rep" then
+        -- Show top 3 factions if available
+        if metrics.repTopFactions and #metrics.repTopFactions > 0 then
+            local lines = {"Top Factions:"}
+            for i = 1, math.min(3, #metrics.repTopFactions) do
+                local faction = metrics.repTopFactions[i]
+                table.insert(lines, string.format("  %s: +%d", faction.name, faction.gained))
+            end
+            return table.concat(lines, "\n")
+        end
+    elseif metricKey == "honor" then
+        -- Show kills if available
+        if metrics.honorKills and metrics.honorKills > 0 then
+            local avgPerKill = math.floor(metrics.honorGained / metrics.honorKills)
+            return string.format("Kills: %d  (Avg: %d honor/kill)", metrics.honorKills, avgPerKill)
+        end
+    end
+    return nil  -- No breakdown available
+end
+
+-- Get metric data for a specific key (helper for focus panel)
+local function GetMetricDataForKey(metricKey, metrics, session)
+    local history = GetMetricHistory(session)
+    local cardCfg = GoldPH_Settings.metricCards
+    local sparkMinutes = (cardCfg and cardCfg.sparklineMinutes) or 15
+    local sampleInterval = history and history.sampleInterval or (cardCfg and cardCfg.sampleInterval) or 10
+    local maxSamples = math.floor((sparkMinutes * 60) / sampleInterval)
+    if maxSamples <= 0 then maxSamples = nil end
+
+    local buffer = GetMetricBuffer(history, metricKey)
+    local rate = 0
+    local total = 0
+    local isActive = false
+
+    if metricKey == "gold" then
+        rate = metrics.totalPerHour
+        total = metrics.totalValue
+        isActive = true
+    elseif metricKey == "xp" then
+        rate = metrics.xpPerHour or 0
+        total = metrics.xpGained or 0
+        isActive = metrics.xpEnabled and rate > 0
+    elseif metricKey == "rep" then
+        rate = metrics.repPerHour or 0
+        total = metrics.repGained or 0
+        isActive = metrics.repEnabled and rate > 0
+    elseif metricKey == "honor" then
+        rate = metrics.honorPerHour or 0
+        total = metrics.honorGained or 0
+        isActive = metrics.honorEnabled and rate > 0
     end
 
-    -- Add a small padding below the last row
-    local padding = 12
-    local newHeight = (top - bottom) + padding
+    local peak = buffer and ComputePeak(buffer, maxSamples) or rate
 
-    -- Never shrink below the base expanded height
-    if newHeight < FRAME_HEIGHT then
-        newHeight = FRAME_HEIGHT
+    return {
+        key = metricKey,
+        label = METRIC_LABELS[metricKey] or metricKey,
+        icon = METRIC_ICONS[metricKey],
+        color = MICROBAR_COLORS[string.upper(metricKey)].fill,
+        rate = rate,
+        total = total,
+        peak = peak,
+        buffer = buffer,
+        maxSamples = maxSamples,
+        isActive = isActive,
+    }
+end
+
+-- Render focus panel for a specific metric
+local function RenderFocusPanel(metricKey)
+    local session = GoldPH_SessionManager:GetActive()
+    if not session or not hudFrame.focusPanel then return end
+
+    local metrics = GoldPH_SessionManager:GetMetrics(session)
+    local focusPanel = hudFrame.focusPanel
+
+    -- Get metric data
+    local metricData = GetMetricDataForKey(metricKey, metrics, session)
+    if not metricData then return end
+
+    -- Set header
+    focusPanel.icon:SetTexture(metricData.icon)
+    focusPanel.header:SetText("Focus: " .. metricData.label)
+
+    -- Stats line: "124g/hr  Total: 1,560g  Peak: 185g/hr"
+    local statsLine = string.format("%s  Total: %s  Peak: %s",
+        FormatRateForCard(metricKey, metricData.rate),
+        FormatTotalForCard(metricKey, metricData.total),
+        FormatRateForCard(metricKey, metricData.peak))
+    focusPanel.statsText:SetText(statsLine)
+
+    -- Extended sparkline (30-60 min window, 30 bars)
+    local buffer = metricData.buffer
+    local maxSamples = math.min(buffer and buffer.count or 0, 360)  -- 60 min at 10s intervals
+    UpdateSparkline(focusPanel.sparklineFrame, buffer, metricData.color, 50, maxSamples)
+
+    -- Breakdown (conditional based on metric type)
+    local breakdownText = GetMetricBreakdown(metricKey, session, metrics)
+    if breakdownText then
+        focusPanel.breakdownText:SetText(breakdownText)
+        focusPanel.breakdownText:Show()
+    else
+        focusPanel.breakdownText:Hide()
     end
-
-    hudFrame:SetHeight(newHeight)
 end
 
 -- Update HUD display
@@ -750,13 +1397,7 @@ function GoldPH_HUD:Update()
     hudFrame.headerTimer:SetText(timerText)
     hudFrame.headerTimer:SetTextColor(timerColor[1], timerColor[2], timerColor[3])
 
-    if hudFrame.headerTimer2 then
-        hudFrame.headerTimer2:SetText(timerText)
-        hudFrame.headerTimer2:SetTextColor(timerColor[1], timerColor[2], timerColor[3])
-    end
-
-    -- Update gold in expanded header
-    hudFrame.headerGold:SetText(FormatAccounting(metrics.totalValue))
+    -- Second header line removed - no longer updating headerGold or headerTimer2
 
     -- Update micro-bars if collapsed and enabled
     local cfg = GoldPH_Settings.microBars
@@ -764,87 +1405,78 @@ function GoldPH_HUD:Update()
         UpdateMicroBars(session, metrics)
     end
 
-    -- Gold (cash balance)
-    hudFrame.goldValue:SetText(FormatAccounting(metrics.cash))
-    hudFrame.goldHrValue:SetText(FormatAccountingShort(metrics.cashPerHour))
+    -- Expanded rectangular panels (only when expanded and enabled)
+    local cardCfg = GoldPH_Settings.metricCards
+    -- Default to enabled if not set (for backward compatibility)
+    local cardsEnabled = cardCfg and (cardCfg.enabled ~= false)
+    local useRectangularPanels = not GoldPH_Settings.hudMinimized and cardsEnabled
+    if useRectangularPanels then
+        -- Hide old metric cards if they exist
+        if hudFrame.metricCards then
+            for _, card in pairs(hudFrame.metricCards) do
+                card:Hide()
+            end
+        end
 
-    -- Inventory (vendor trash + rare items, excluding gathering)
-    local nonGatheringInventory = metrics.invVendorTrash + metrics.invRareMulti
-    hudFrame.invValue:SetText(FormatAccounting(nonGatheringInventory))
+        -- Ensure panels exist before updating
+        EnsureMetricPanels()
 
-    -- Gathering (ore, herbs, leather, cloth)
-    hudFrame.gathValue:SetText(FormatAccounting(metrics.invGathering))
+        -- Update panels (with nil checks)
+        if hudFrame.goldPanel then
+            UpdateGoldPanel(hudFrame.goldPanel, metrics, session)
+        end
+        if hudFrame.xpPanel then
+            UpdateXPPanel(hudFrame.xpPanel, metrics)
+        end
+        if hudFrame.repPanel then
+            UpdateRepPanel(hudFrame.repPanel, metrics)
+        end
+        if hudFrame.honorPanel then
+            UpdateHonorPanel(hudFrame.honorPanel, metrics)
+        end
 
-    -- Expenses (shown with parentheses since it's a deduction)
-    if metrics.expenses > 0 then
-        hudFrame.expValue:SetText("(" .. GoldPH_Ledger:FormatMoney(metrics.expenses) .. ")")
-        hudFrame.expValue:SetTextColor(PH_ACCENT_WARNING[1], PH_ACCENT_WARNING[2], PH_ACCENT_WARNING[3])
+        -- Calculate container height dynamically (gold panel height grows with breakdown rows)
+        local goldPanelHeight = (hudFrame.goldPanel and hudFrame.goldPanel.goldPanelHeight) or 140
+        local containerHeight = goldPanelHeight
+        if hudFrame.xpPanel:IsShown() or hudFrame.repPanel:IsShown() then
+            containerHeight = containerHeight + PANEL_GAP + 80  -- Middle row
+        end
+        if hudFrame.honorPanel:IsShown() then
+            containerHeight = containerHeight + PANEL_GAP + 90  -- Honor panel
+        end
+
+        hudFrame.metricCardContainer:SetHeight(containerHeight)
+        hudFrame.metricCardContainer:Show()
+
+        -- Update HUD frame height to fit panels + padding
+        -- Top: PADDING (12) + title/timer row (~14) + gap to container (12) = 38px
+        -- Content: containerHeight (gold 140 + optional middle row 6+80 + optional honor 6+90)
+        -- Bottom: padding + backdrop inset so content isn't clipped
+        local expandedHeaderHeight = 38
+        local bottomPadding = 12 + 4  -- padding + backdrop bottom inset
+        local totalHeight = expandedHeaderHeight + containerHeight + bottomPadding
+        hudFrame:SetHeight(totalHeight)
+
+        -- Sample metric history for future use (sparklines, etc.)
+        GoldPH_SessionManager:SampleMetricHistory(session, metrics)
     else
-        hudFrame.expValue:SetText("0g")
-        hudFrame.expValue:SetTextColor(1, 1, 1)
-    end
-
-    -- Phase 9: XP/Rep/Honor rows (only shown if metrics enabled and HUD expanded)
-    local showMetricsRows = not GoldPH_Settings.hudMinimized
-
-    -- XP row
-    if showMetricsRows and metrics.xpEnabled and metrics.xpPerHour > 0 then
-        local xpStr = metrics.xpPerHour >= 1000 and
-            string.format("%.1fk", metrics.xpPerHour / 1000) or
-            tostring(metrics.xpPerHour)
-        hudFrame.xpValue:SetText(xpStr)
-        hudFrame.xpLabel:Show()
-        hudFrame.xpValue:Show()
-    else
-        hudFrame.xpLabel:Hide()
-        hudFrame.xpValue:Hide()
-    end
-
-    -- Rep row
-    if showMetricsRows and metrics.repEnabled and metrics.repPerHour > 0 then
-        hudFrame.repValue:SetText(tostring(metrics.repPerHour))
-        hudFrame.repLabel:Show()
-        hudFrame.repValue:Show()
-    else
-        hudFrame.repLabel:Hide()
-        hudFrame.repValue:Hide()
-    end
-
-    -- Honor row
-    if showMetricsRows and metrics.honorEnabled and metrics.honorPerHour > 0 then
-        hudFrame.honorValue:SetText(tostring(metrics.honorPerHour))
-        hudFrame.honorLabel:Show()
-        hudFrame.honorValue:Show()
-    else
-        hudFrame.honorLabel:Hide()
-        hudFrame.honorValue:Hide()
-    end
-
-    -- Total value (cash + all inventory)
-    hudFrame.totalValue:SetText(FormatAccounting(metrics.totalValue))
-    hudFrame.totalHrValue:SetText(FormatAccountingShort(metrics.totalPerHour))
-
-    -- Adjust HUD height based on the last visible row:
-    -- default to totalHrLabel, but extend to last shown XP/Rep/Honor row if present
-    local lastElement = hudFrame.totalHrLabel
-    if showMetricsRows then
-        if hudFrame.honorLabel:IsShown() then
-            lastElement = hudFrame.honorLabel
-        elseif hudFrame.repLabel:IsShown() then
-            lastElement = hudFrame.repLabel
-        elseif hudFrame.xpLabel:IsShown() then
-            lastElement = hudFrame.xpLabel
+        -- Minimized or cards disabled: hide panel container
+        if hudFrame.metricCardContainer then
+            hudFrame.metricCardContainer:Hide()
         end
     end
-
-    UpdateHudHeight(lastElement)
 end
 
 -- Show HUD
 function GoldPH_HUD:Show()
+    if not hudFrame then
+        self:Initialize()
+    end
+
     if hudFrame then
         hudFrame:Show()
-        self:Update()
+        -- Apply minimize state so frame size (width/height) and content match hudMinimized
+        self:ApplyMinimizeState()
 
         -- Save visibility state
         GoldPH_Settings.hudVisible = true
@@ -902,35 +1534,22 @@ function GoldPH_HUD:ApplyMinimizeState()
         hudFrame.minMaxBtn:SetPushedTexture("Interface\\Buttons\\UI-MinusButton-Down")
     end
 
-    -- Header: title always visible; gold | timer line only when expanded (collapsed uses micro-bar icons)
-    if hudFrame.headerContainer then
-        if isMinimized then
-            hudFrame.headerContainer:Hide()
-        else
-            hudFrame.headerContainer:Show()
-        end
-    end
+    -- Header: title always visible; second line (gold | timer) removed per user request
+    -- headerContainer remains hidden
 
     -- Only toggle expanded content below header
-    local expandedElements = {
-        hudFrame.sep1, hudFrame.sep2,
-        hudFrame.goldLabel, hudFrame.goldValue,
-        hudFrame.goldHrLabel, hudFrame.goldHrValue,
-        hudFrame.invLabel, hudFrame.invValue,
-        hudFrame.gathLabel, hudFrame.gathValue,
-        hudFrame.expLabel, hudFrame.expValue,
-        hudFrame.xpLabel, hudFrame.xpValue,      -- Phase 9
-        hudFrame.repLabel, hudFrame.repValue,    -- Phase 9
-        hudFrame.honorLabel, hudFrame.honorValue,-- Phase 9
-        hudFrame.totalLabel, hudFrame.totalValue,
-        hudFrame.totalHrLabel, hudFrame.totalHrValue,
-    }
-
-    for _, element in ipairs(expandedElements) do
-        if isMinimized then
-            element:Hide()
-        else
-            element:Show()
+    local cardCfg = GoldPH_Settings.metricCards
+    -- Default to enabled if not set (for backward compatibility)
+    local cardsEnabled = cardCfg and (cardCfg.enabled ~= false)
+    local useCards = not isMinimized and cardsEnabled
+    
+    if useCards then
+        if hudFrame.metricCardContainer then
+            hudFrame.metricCardContainer:Show()
+        end
+    else
+        if hudFrame.metricCardContainer then
+            hudFrame.metricCardContainer:Hide()
         end
     end
 
@@ -950,6 +1569,11 @@ function GoldPH_HUD:ApplyMinimizeState()
         end
     end
 
+    -- Close focus panel if currently open when minimizing
+    if isMinimized and hudFrame.focusPanel and hudFrame.focusPanel:IsShown() then
+        GoldPH_HUD:HideFocusPanel()
+    end
+
     -- Adjust frame size while maintaining top position
     -- Store current top position before changing size
     local point, relativeTo, relativePoint, xOfs, yOfs = hudFrame:GetPoint()
@@ -960,8 +1584,8 @@ function GoldPH_HUD:ApplyMinimizeState()
         -- PADDING (12) + 4*50 + 3*14 + PADDING (12) = 12 + 200 + 42 + 12 = 266
         hudFrame:SetWidth(266)
     else
-        hudFrame:SetHeight(FRAME_HEIGHT)
-        hudFrame:SetWidth(FRAME_WIDTH)
+        -- Expanded: width for rectangular panels; height set in Update()
+        hudFrame:SetWidth(FRAME_WIDTH_EXPANDED)
     end
 
     -- Restore top position to prevent jumping
@@ -970,6 +1594,23 @@ function GoldPH_HUD:ApplyMinimizeState()
 
     -- Update display
     self:Update()
+end
+
+-- Show focus panel for the selected metric
+function GoldPH_HUD:ShowFocusPanel()
+    if not hudFrame or not hudFrame.focusPanel then return end
+    local key = hudFrame.metricFocusKey
+    if not key then return end
+
+    RenderFocusPanel(key)
+    hudFrame.focusPanel:Show()
+end
+
+-- Hide focus panel
+function GoldPH_HUD:HideFocusPanel()
+    if not hudFrame or not hudFrame.focusPanel then return end
+    hudFrame.metricFocusKey = nil
+    hudFrame.focusPanel:Hide()
 end
 
 -- Export module

@@ -9,6 +9,15 @@
 
 local GoldPH_Events = {}
 
+-- Gathering spell mapping (Classic / TBC)
+-- These spellIDs are stable across Classic-era clients.
+local GATHERING_SPELLS = {
+    [2575] = "Mining",      -- Mining
+    [2366] = "Herbalism",   -- Herb Gathering
+    [8613] = "Skinning",    -- Skinning
+    [7620] = "Fishing",     -- Fishing
+}
+
 --------------------------------------------------
 -- API Compatibility (Classic Anniversary uses C_Container)
 --------------------------------------------------
@@ -56,6 +65,11 @@ local state = {
     -- Phase 6: BAG_UPDATE fallback for lockbox opening (when UseContainerItem isn't hookable)
     lockboxBagSnapshot = nil,  -- [ "bag_slot" ] = { itemID, count } for slots with lockboxes
 
+    -- Phase 7: Gathering node tracking
+    gatherSpellSentAt = 0,
+    gatherTargetName = nil,
+    gatherSpellID = nil,
+
     -- Phase 9: XP/Rep/Honor tracking
     xpLast = nil,
     xpMaxLast = nil,
@@ -74,7 +88,8 @@ function GoldPH_Events:Initialize(frame)
     frame:RegisterEvent("TAXIMAP_OPENED") -- Phase 5
     frame:RegisterEvent("TAXIMAP_CLOSED") -- Phase 5
     frame:RegisterEvent("QUEST_TURNED_IN") -- Phase 5
-    frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED") -- Phase 6 (pickpocket detection)
+    frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED") -- Phase 6 (pickpocket detection, Phase 7 gathering)
+    frame:RegisterEvent("UNIT_SPELLCAST_SENT")      -- Phase 7 (gathering target capture)
     frame:RegisterEvent("PLAYER_XP_UPDATE") -- Phase 9 (XP tracking)
     frame:RegisterEvent("UPDATE_FACTION") -- Phase 9 (Reputation tracking)
     frame:RegisterEvent("CHAT_MSG_COMBAT_HONOR_GAIN") -- Phase 9 (Honor tracking)
@@ -111,6 +126,12 @@ end
 
 -- Main event dispatcher
 function GoldPH_Events:OnEvent(event, ...)
+    -- Early return if SessionManager isn't loaded yet (can happen during addon load)
+    -- Use type() check to avoid indexing nil value errors
+    if type(GoldPH_SessionManager) ~= "table" then
+        return
+    end
+    
     -- Do not record any events while session is paused (keeps gold/hr accurate)
     local session = GoldPH_SessionManager:GetActiveSession()
     if session and session.pausedAt then
@@ -137,6 +158,8 @@ function GoldPH_Events:OnEvent(event, ...)
         self:OnQuestTurnedIn(...)
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         self:OnUnitSpellcastSucceeded(...)
+    elseif event == "UNIT_SPELLCAST_SENT" then
+        self:OnUnitSpellcastSent(...)
     elseif event == "PLAYER_XP_UPDATE" then
         self:OnPlayerXPUpdate()
     elseif event == "UPDATE_FACTION" then
@@ -619,6 +642,40 @@ end
 -- Phase 6: Pickpocket Context Detection
 --------------------------------------------------
 
+-- Phase 7: Gathering Node Tracking
+--------------------------------------------------
+
+-- Handle UNIT_SPELLCAST_SENT event (capture target for gathering spells)
+-- @param unitTarget: Unit that cast the spell (e.g., "player", "target")
+-- @param spellName: Localized spell name
+-- @param rank: Spell rank (unused)
+-- @param targetName: Name of the target (e.g., "Copper Vein", "Peacebloom", "Skinning")
+-- @param lineID: Cast line ID (unused)
+-- @param spellID: Spell ID
+function GoldPH_Events:OnUnitSpellcastSent(unitTarget, spellName, rank, targetName, lineID, spellID)
+    -- Only track player casts
+    if unitTarget ~= "player" then
+        return
+    end
+
+    if not spellID or not GATHERING_SPELLS[spellID] then
+        return
+    end
+
+    -- Record most recent gathering cast context
+    state.gatherSpellSentAt = GetTime()
+    state.gatherSpellID = spellID
+    state.gatherTargetName = targetName
+
+    if GoldPH_DB_Account and GoldPH_DB_Account.debug and GoldPH_DB_Account.debug.verbose then
+        print(string.format(
+            "[GoldPH] Gathering cast sent: %s on %s",
+            GATHERING_SPELLS[spellID] or (spellName or "?"),
+            targetName or "unknown"
+        ))
+    end
+end
+
 -- Handle UNIT_SPELLCAST_SUCCEEDED event (for pickpocket detection)
 -- @param unitTarget: Unit that cast the spell (e.g., "player", "target")
 -- @param castGUID: Cast GUID
@@ -629,21 +686,61 @@ function GoldPH_Events:OnUnitSpellcastSucceeded(unitTarget, castGUID, spellID)
         return
     end
 
-    -- Get spell name from spell ID
+    -- Get spell name from spell ID (used for logging and fallback labels)
     local spellName = GetSpellInfo(spellID)
     if not spellName then
         return
     end
 
+    --------------------------------------------------
+    -- Pickpocket attribution window
+    --------------------------------------------------
     -- Check if this is Pick Pocket spell
     -- In Classic, the spell name is "Pick Pocket" (with space)
     if spellName == "Pick Pocket" or spellName == "Pickpocket" then
         -- Set attribution window: 2 seconds after cast
         state.pickpocketActiveUntil = GetTime() + 2.0
 
-        if GoldPH_DB_Account.debug.verbose then
+        if GoldPH_DB_Account and GoldPH_DB_Account.debug and GoldPH_DB_Account.debug.verbose then
             print(string.format("[GoldPH] Pick Pocket detected, attribution window: %.1f seconds", 2.0))
         end
+    end
+
+    --------------------------------------------------
+    -- Gathering node tracking (Mining / Herbalism / Skinning / Fishing)
+    --------------------------------------------------
+    local gatherLabel = GATHERING_SPELLS[spellID]
+    if gatherLabel then
+        local session = GoldPH_SessionManager:GetActiveSession()
+        if not session then
+            return
+        end
+
+        -- Only attribute if this SUCCEEDED corresponds to a recent SENT for the same spell.
+        local shouldAttribute = false
+        if state.gatherSpellID == spellID and state.gatherSpellSentAt and state.gatherSpellSentAt > 0 then
+            local elapsed = GetTime() - state.gatherSpellSentAt
+            if elapsed >= 0 and elapsed <= 5.0 then
+                shouldAttribute = true
+            end
+        else
+            -- Fallback: if SENT wasn't captured (edge case), still count by spell label
+            shouldAttribute = true
+        end
+
+        if shouldAttribute and GoldPH_SessionManager.AddGatherNode then
+            local nodeName = state.gatherTargetName or gatherLabel or spellName
+            GoldPH_SessionManager:AddGatherNode(session, nodeName)
+
+            if GoldPH_DB_Account and GoldPH_DB_Account.debug and GoldPH_DB_Account.debug.verbose then
+                print(string.format("[GoldPH] Gathering node recorded: %s via %s", nodeName, gatherLabel or spellName))
+            end
+        end
+
+        -- Clear gathering state after processing
+        state.gatherSpellSentAt = 0
+        state.gatherTargetName = nil
+        state.gatherSpellID = nil
     end
 end
 
@@ -1143,6 +1240,62 @@ function GoldPH_Events:ProcessVendorSale(session, itemID, itemName, count, vendo
 
     -- Update HUD
     GoldPH_HUD:Update()
+end
+
+--------------------------------------------------
+-- Phase 7: Test Injection - Gathering Nodes
+--------------------------------------------------
+
+-- Inject a gathering node event (for testing)
+-- In real gameplay, value comes from the looted items (ore, herbs, etc.).
+-- For testing, copperValueEach lets you simulate the average loot value per node.
+-- @param nodeName: Human-readable node name (e.g., "Copper Vein", "Peacebloom")
+-- @param count: Number of nodes to inject (default 1)
+-- @param copperValueEach: Optional copper value per node to post as gathering inventory
+function GoldPH_Events:InjectGatherNode(nodeName, count, copperValueEach)
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        return false, "No active session"
+    end
+
+    if not nodeName or nodeName == "" then
+        return false, "Invalid node name"
+    end
+
+    count = count or 1
+    if count <= 0 then
+        return false, "Count must be > 0"
+    end
+
+    for i = 1, count do
+        GoldPH_SessionManager:AddGatherNode(session, nodeName)
+    end
+
+    -- Post gathering inventory value if provided
+    if copperValueEach and copperValueEach > 0 then
+        local totalValue = count * copperValueEach
+        GoldPH_Ledger:Post(session, "Assets:Inventory:Gathering", "Income:ItemsLooted:Gathering", totalValue)
+    end
+
+    -- Debug logging
+    local valueStr = ""
+    if copperValueEach and copperValueEach > 0 then
+        valueStr = string.format(", value=%s each, total=%s",
+            GoldPH_Ledger:FormatMoney(copperValueEach),
+            GoldPH_Ledger:FormatMoney(count * copperValueEach))
+    end
+    print(string.format("[GoldPH Test] Injected gathering node: %s x%d (totalNodes=%d%s)",
+        nodeName, count, session.gathering and session.gathering.totalNodes or 0, valueStr))
+
+    -- Run invariants if debug mode enabled
+    if GoldPH_DB_Account.debug.enabled then
+        GoldPH_Debug:ValidateInvariants(session)
+    end
+
+    -- Update HUD
+    GoldPH_HUD:Update()
+
+    return true
 end
 
 --------------------------------------------------

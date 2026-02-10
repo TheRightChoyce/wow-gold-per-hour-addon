@@ -1,5 +1,7 @@
 # GoldPH History UI Implementation Summary
 
+> Note: Metric-card trend/stability indicators in HUD/History summary were removed from the current implementation. Any trend mentions here are historical or future-oriented, not active summary-card trend UI.
+
 ## Status: Core Framework Complete (Phases 1-4)
 
 The GoldPH History UI has been successfully implemented with core functionality. Users can now browse historical sessions with filtering, sorting, and detailed session breakdowns.

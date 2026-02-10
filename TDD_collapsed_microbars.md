@@ -48,7 +48,7 @@ Each metric tile is a compact horizontal block:
 
 ### 2.2 Conditional display
 - If a metric has **no gain** (or rate <= 0), **hide** the tile completely (and therefore its micro-bar).
-- If only one metric is active, micro-bar still shows (helps indicate trend intensity vs typical).
+- If only one metric is active, micro-bar still shows (helps indicate relative intensity vs typical).
 
 ---
 

@@ -33,6 +33,27 @@ local QualityColors = {
     [5] = {1, 0.5, 0},      -- Legendary (orange)
 }
 
+local METRIC_ICONS = {
+    gold = "Interface\\MoneyFrame\\UI-GoldIcon",
+    xp = "Interface\\Icons\\INV_Misc_Book_11",
+    rep = "Interface\\Icons\\INV_Misc_Ribbon_01",
+    honor = "Interface\\Icons\\inv_bannerpvp_02",
+}
+
+local METRIC_LABELS = {
+    gold = "GOLD / HOUR",
+    xp = "XP / HOUR",
+    rep = "REP / HOUR",
+    honor = "HONOR / HOUR",
+}
+
+local METRIC_COLORS = {
+    gold = pH_Colors.METRIC_GOLD,
+    xp = pH_Colors.METRIC_XP,
+    rep = pH_Colors.METRIC_REP,
+    honor = pH_Colors.METRIC_HONOR,
+}
+
 --------------------------------------------------
 -- Initialize
 --------------------------------------------------
@@ -251,6 +272,67 @@ local function FormatFriendlyDate(timestamp)
 end
 
 --------------------------------------------------
+-- Metric history helpers (expanded cards)
+--------------------------------------------------
+local function GetMetricHistory(session)
+    return session and session.metricHistory or nil
+end
+
+local function GetMetricBuffer(history, metricKey)
+    if not history or not history.metrics then return nil end
+    return history.metrics[metricKey]
+end
+
+local function GetBufferSample(buffer, offsetFromLatest)
+    if not buffer or buffer.count == 0 then return nil end
+    if offsetFromLatest >= buffer.count then return nil end
+    local index = buffer.head - offsetFromLatest
+    if index <= 0 then
+        index = index + buffer.capacity
+    end
+    return buffer.samples[index]
+end
+
+local function ComputePeak(buffer, maxSamples)
+    if not buffer or buffer.count == 0 then return 0 end
+    local peak = 0
+    local count = buffer.count
+    if maxSamples and maxSamples < count then
+        count = maxSamples
+    end
+    for i = 0, count - 1 do
+        local v = GetBufferSample(buffer, i) or 0
+        if v > peak then
+            peak = v
+        end
+    end
+    return peak
+end
+
+local function FormatMetricRate(metricKey, rate)
+    if metricKey == "gold" then
+        return GoldPH_Ledger:FormatMoneyShort(rate) .. "/hr"
+    end
+    if metricKey == "xp" or metricKey == "honor" then
+        if rate >= 1000 then
+            return string.format("%.1fk/hr", rate / 1000)
+        end
+        return string.format("%d/hr", rate)
+    end
+    if metricKey == "rep" then
+        return string.format("%d/hr", rate)
+    end
+    return tostring(rate)
+end
+
+local function FormatMetricTotal(metricKey, total)
+    if metricKey == "gold" then
+        return GoldPH_Ledger:FormatMoney(total)
+    end
+    return tostring(total)
+end
+
+--------------------------------------------------
 -- Render Summary Tab
 --------------------------------------------------
 function GoldPH_History_Detail:RenderSummaryTab()
@@ -262,7 +344,557 @@ function GoldPH_History_Detail:RenderSummaryTab()
 
     local session = self.currentSession
     local metrics = self.currentMetrics
+    local cfg = GoldPH_Settings and GoldPH_Settings.metricCards or {}
+    local showInactive = cfg.showInactive == true
+    local sparklineMinutes = cfg.sparklineMinutes or 15
     local yOffset = -10
+
+    local headerText = scrollChild.headerText
+    if not headerText then
+        headerText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        scrollChild.headerText = headerText
+    end
+    headerText:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
+    headerText:SetText("Session #" .. session.id .. " - " .. (session.zone or "Unknown"))
+    headerText:SetTextColor(pH_Colors.ACCENT_GOLD[1], pH_Colors.ACCENT_GOLD[2], pH_Colors.ACCENT_GOLD[3])
+    headerText:Show()
+    yOffset = yOffset - 20
+
+    local subText = scrollChild.subText
+    if not subText then
+        subText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        scrollChild.subText = subText
+    end
+    subText:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
+    subText:SetText(string.format("Started %s  |  Duration %s",
+        FormatFriendlyDate(session.startedAt),
+        GoldPH_SessionManager:FormatDuration(metrics.durationSec)))
+    subText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+    subText:Show()
+    yOffset = yOffset - 20
+
+    local metricContainer = scrollChild.metricContainer
+    if not metricContainer then
+        metricContainer = CreateFrame("Frame", nil, scrollChild)
+        scrollChild.metricContainer = metricContainer
+    end
+    metricContainer:ClearAllPoints()
+    metricContainer:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
+    metricContainer:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -10, yOffset)
+    metricContainer:Show()
+
+    local history = GetMetricHistory(session)
+    local metricData = {}
+    local metricOrder = { "gold", "xp", "rep", "honor" }
+    local metricMap = {}
+
+    local function AddMetric(metricKey, isActive, rate, total)
+        -- Always add all 4 metrics, even if no data
+        local buffer = GetMetricBuffer(history, metricKey)
+        local maxSamples = nil
+        if history and history.sampleInterval then
+            maxSamples = math.floor((sparklineMinutes * 60) / history.sampleInterval)
+            if maxSamples <= 0 then maxSamples = nil end
+        end
+        local peak = buffer and ComputePeak(buffer, maxSamples) or rate
+        local data = {
+            key = metricKey,
+            label = METRIC_LABELS[metricKey],
+            icon = METRIC_ICONS[metricKey],
+            color = METRIC_COLORS[metricKey],
+            rate = rate or 0,
+            total = total or 0,
+            peak = peak or 0,
+            buffer = buffer,
+            maxSamples = maxSamples,
+            isActive = isActive,
+        }
+        table.insert(metricData, data)
+        metricMap[metricKey] = data
+    end
+
+    -- Always show all 4 metric cards
+    AddMetric("gold", true, metrics.totalPerHour or 0, metrics.totalValue or 0)
+    AddMetric("xp", metrics.xpEnabled and metrics.xpGained > 0, metrics.xpPerHour or 0, metrics.xpGained or 0)
+    AddMetric("rep", metrics.repEnabled and metrics.repGained > 0, metrics.repPerHour or 0, metrics.repGained or 0)
+    AddMetric("honor", metrics.honorEnabled and metrics.honorGained > 0, metrics.honorPerHour or 0, metrics.honorGained or 0)
+
+    local containerWidth = (frame:GetWidth() > 0 and frame:GetWidth() or 380) - 20
+    local cardGap = 10
+    local cardHeight = 110
+    local cardWidth = containerWidth  -- luacheck: ignore 311
+    if #metricData > 1 then
+        cardWidth = math.floor((containerWidth - cardGap) / 2)
+    else
+        cardWidth = math.min(260, containerWidth)
+    end
+
+    local function EnsureSparkline(frame, barCount)
+        if frame.bars then return end
+        frame.bars = {}
+        frame.barCount = barCount
+        for i = 1, barCount do
+            local bar = frame:CreateTexture(nil, "ARTWORK")
+            bar:SetColorTexture(1, 1, 1, 0.7)
+            frame.bars[i] = bar
+        end
+    end
+
+    local function UpdateSparkline(frame, buffer, barColor, height, maxSamples)
+        if not frame or not frame.bars then return end
+        local barCount = frame.barCount or 12
+        local width = frame:GetWidth()
+        if not width or width <= 0 then
+            local parent = frame:GetParent()
+            if parent and parent.GetWidth then
+                local insetLeft = frame.insetLeft or 8
+                local insetRight = frame.insetRight or 8
+                width = parent:GetWidth() - insetLeft - insetRight
+            end
+        end
+        if not width or width <= 0 then
+            -- First paint can occur before anchors resolve. Retry once next frame.
+            if C_Timer and C_Timer.After then
+                frame._sparklinePending = {
+                    buffer = buffer,
+                    barColor = barColor,
+                    height = height,
+                    maxSamples = maxSamples,
+                }
+                if not frame._sparklineRetryQueued then
+                    frame._sparklineRetryQueued = true
+                    C_Timer.After(0, function()
+                        if not frame then return end
+                        frame._sparklineRetryQueued = nil
+                        local pending = frame._sparklinePending
+                        if not pending then return end
+                        frame._sparklinePending = nil
+                        UpdateSparkline(
+                            frame,
+                            pending.buffer,
+                            pending.barColor,
+                            pending.height,
+                            pending.maxSamples
+                        )
+                    end)
+                end
+            end
+            return
+        end
+        local gap = 2
+        local barWidth = math.max(1, math.floor((width - (gap * (barCount - 1))) / barCount))
+        local maxValue = 0
+        local available = buffer and buffer.count or 0
+        if maxSamples and maxSamples < available then
+            available = maxSamples
+        end
+        local span = math.max(1, available)
+        for i = 0, barCount - 1 do
+            local offset = math.floor((i / barCount) * (span - 1))
+            local v = buffer and GetBufferSample(buffer, offset) or 0
+            if v > maxValue then maxValue = v end
+        end
+        if maxValue == 0 then maxValue = 1 end
+        for i = 1, barCount do
+            local offset = math.floor(((barCount - i) / barCount) * (span - 1))
+            local v = buffer and GetBufferSample(buffer, offset) or 0
+            local normalized = math.min(math.max(v / maxValue, 0), 1)
+            local barHeight = math.max(2, math.floor(height * normalized))
+            local bar = frame.bars[i]
+            bar:ClearAllPoints()
+            bar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", (i - 1) * (barWidth + gap), 0)
+            bar:SetSize(barWidth, barHeight)
+            bar:SetColorTexture(barColor[1], barColor[2], barColor[3], barColor[4] or 0.85)
+            bar:Show()
+        end
+    end
+
+    local function EnsureCard(metricKey)
+        scrollChild.metricCards = scrollChild.metricCards or {}
+        local card = scrollChild.metricCards[metricKey]
+        if card then
+            return card
+        end
+        card = CreateFrame("Button", nil, metricContainer, "BackdropTemplate")
+        card:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true,
+            tileSize = 16,
+            edgeSize = 12,
+            insets = {left = 3, right = 3, top = 3, bottom = 3},
+        })
+        card:SetBackdropColor(pH_Colors.BG_DARK[1], pH_Colors.BG_DARK[2], pH_Colors.BG_DARK[3], 0.85)
+        card:SetBackdropBorderColor(pH_Colors.BORDER_BRONZE[1], pH_Colors.BORDER_BRONZE[2], pH_Colors.BORDER_BRONZE[3], 0.9)
+
+        local icon = card:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(16, 16)
+        icon:SetPoint("TOPLEFT", card, "TOPLEFT", 8, -8)
+        card.icon = icon
+
+        local header = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        header:SetPoint("LEFT", icon, "RIGHT", 6, 0)
+        header:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        card.headerText = header
+
+        local rateText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        rateText:SetPoint("TOPLEFT", card, "TOPLEFT", 8, -28)
+        rateText:SetTextColor(pH_Colors.TEXT_PRIMARY[1], pH_Colors.TEXT_PRIMARY[2], pH_Colors.TEXT_PRIMARY[3])
+        card.rateText = rateText
+
+        local totalText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        totalText:SetPoint("TOPLEFT", card, "TOPLEFT", 8, -50)
+        totalText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        card.totalText = totalText
+
+        local peakText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        peakText:SetPoint("LEFT", totalText, "RIGHT", 10, 0)
+        peakText:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        card.peakText = peakText
+
+        local sparkline = CreateFrame("Frame", nil, card)
+        sparkline:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 8, 6)
+        sparkline:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -8, 6)
+        sparkline:SetHeight(18)
+        sparkline.insetLeft = 8
+        sparkline.insetRight = 8
+        EnsureSparkline(sparkline, 12)
+        card.sparkline = sparkline
+
+        scrollChild.metricCards[metricKey] = card
+        return card
+    end
+
+    local function UpdateCard(card, data)
+        card.icon:SetTexture(data.icon)
+        card.headerText:SetText(data.label)
+        card.rateText:SetText(FormatMetricRate(data.key, data.rate))
+        card.totalText:SetText("Total: " .. FormatMetricTotal(data.key, data.total))
+        card.peakText:SetText("Peak: " .. FormatMetricRate(data.key, data.peak))
+
+        local color = data.color or pH_Colors.ACCENT_GOLD
+        UpdateSparkline(card.sparkline, data.buffer, color, 18, data.maxSamples)
+
+        card:SetScript("OnClick", function()
+            self.focusMetricKey = data.key
+            self:RenderSummaryTab()
+        end)
+    end
+
+    -- Focus panel spacing constants to keep header/sparkline/rows consistent
+    -- and prevent overlap with the bottom border/back button.
+    local FOCUS_BASE_HEIGHT = 178
+    local FOCUS_HEADER_TOP = -120
+    local FOCUS_DIVIDER_TOP = -128
+    local FOCUS_ROW_START = -136
+    local FOCUS_ROW_STEP = 14
+    local FOCUS_ROW_HEIGHT = 14
+    local FOCUS_BOTTOM_CLEARANCE = 34
+
+    local function EnsureFocusPanel()
+        local panel = scrollChild.focusPanel
+        if panel then return panel end
+        panel = CreateFrame("Frame", nil, scrollChild, "BackdropTemplate")
+        panel:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true,
+            tileSize = 16,
+            edgeSize = 14,
+            insets = {left = 4, right = 4, top = 4, bottom = 4},
+        })
+        panel:SetBackdropColor(pH_Colors.BG_PARCHMENT[1], pH_Colors.BG_PARCHMENT[2], pH_Colors.BG_PARCHMENT[3], 0.9)
+        panel:SetBackdropBorderColor(pH_Colors.BORDER_BRONZE[1], pH_Colors.BORDER_BRONZE[2], pH_Colors.BORDER_BRONZE[3], 1)
+
+        panel.title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        panel.title:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -10)
+        panel.title:SetTextColor(pH_Colors.TEXT_PRIMARY[1], pH_Colors.TEXT_PRIMARY[2], pH_Colors.TEXT_PRIMARY[3])
+
+        panel.stats = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        panel.stats:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -32)
+        panel.stats:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+
+        panel.sparkline = CreateFrame("Frame", nil, panel)
+        panel.sparkline:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -58)
+        panel.sparkline:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -10, -58)
+        panel.sparkline:SetHeight(36)
+        panel.sparkline.insetLeft = 10
+        panel.sparkline.insetRight = 10
+        EnsureSparkline(panel.sparkline, 24)
+
+        panel.breakdown = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        panel.breakdown:SetPoint("TOPLEFT", panel.sparkline, "BOTTOMLEFT", 0, -8)
+        panel.breakdown:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+
+        panel.breakdownHeader = {
+            source = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"),
+            rate = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"),
+            total = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"),
+            pct = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"),
+        }
+        panel.breakdownHeader.source:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, FOCUS_HEADER_TOP)
+        -- Match row column right edges exactly (row frame right is panel right minus 16)
+        panel.breakdownHeader.rate:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -166, FOCUS_HEADER_TOP)
+        panel.breakdownHeader.total:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -76, FOCUS_HEADER_TOP)
+        panel.breakdownHeader.pct:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, FOCUS_HEADER_TOP)
+
+        panel.breakdownHeader.source:SetText("Source")
+        panel.breakdownHeader.rate:SetText("g/hr")
+        panel.breakdownHeader.total:SetText("Total")
+        panel.breakdownHeader.pct:SetText("%")
+        panel.breakdownHeader.source:SetJustifyH("LEFT")
+        panel.breakdownHeader.rate:SetJustifyH("RIGHT")
+        panel.breakdownHeader.total:SetJustifyH("RIGHT")
+        panel.breakdownHeader.pct:SetJustifyH("RIGHT")
+
+        panel.breakdownHeader.source:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        panel.breakdownHeader.rate:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        panel.breakdownHeader.total:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+        panel.breakdownHeader.pct:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+
+        -- Divider under header row to improve legibility in lieu of true bold font weight
+        panel.breakdownHeaderDivider = panel:CreateTexture(nil, "BORDER")
+        panel.breakdownHeaderDivider:SetColorTexture(pH_Colors.DIVIDER[1], pH_Colors.DIVIDER[2], pH_Colors.DIVIDER[3], 0.9)
+        panel.breakdownHeaderDivider:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, FOCUS_DIVIDER_TOP)
+        panel.breakdownHeaderDivider:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, FOCUS_DIVIDER_TOP)
+        panel.breakdownHeaderDivider:SetHeight(1)
+
+        panel.breakdownHeader.source:Hide()
+        panel.breakdownHeader.rate:Hide()
+        panel.breakdownHeader.total:Hide()
+        panel.breakdownHeader.pct:Hide()
+        panel.breakdownHeaderDivider:Hide()
+
+        panel.breakdownRows = {}
+
+        panel.backBtn = CreateFrame("Button", nil, panel, "BackdropTemplate")
+        panel.backBtn:SetSize(50, 18)
+        panel.backBtn:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 10, 8)
+        panel.backBtn:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true,
+            tileSize = 16,
+            edgeSize = 8,
+            insets = {left = 2, right = 2, top = 2, bottom = 2},
+        })
+        panel.backBtn:SetBackdropColor(pH_Colors.BG_DARK[1], pH_Colors.BG_DARK[2], pH_Colors.BG_DARK[3], 0.8)
+        panel.backBtn:SetBackdropBorderColor(pH_Colors.DIVIDER[1], pH_Colors.DIVIDER[2], pH_Colors.DIVIDER[3], 0.6)
+        panel.backBtnText = panel.backBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        panel.backBtnText:SetPoint("CENTER")
+        panel.backBtnText:SetText("Back")
+        panel.backBtn:SetScript("OnClick", function()
+            self.focusMetricKey = nil
+            self:RenderSummaryTab()
+        end)
+
+        scrollChild.focusPanel = panel
+        return panel
+    end
+
+    local function AddFocusBreakdownRow(panel, yOffset, label, perHourValue, totalValue, pctValue)
+        local panelWidth = panel:GetWidth()
+        if not panelWidth or panelWidth <= 0 then
+            panelWidth = (scrollChild and scrollChild:GetWidth() and scrollChild:GetWidth() > 0)
+                and (scrollChild:GetWidth() - 20)
+                or 360
+        end
+        local row = CreateFrame("Frame", nil, panel)
+        row:SetSize(panelWidth - 32, 14)
+        row:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, yOffset)
+
+        row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        row.label:SetPoint("LEFT", row, "LEFT", 0, 0)
+        row.label:SetText(label)
+        row.label:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+
+        row.perHour = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        row.perHour:SetPoint("RIGHT", row, "RIGHT", -150, 0)
+        row.perHour:SetJustifyH("RIGHT")
+        row.perHour:SetText(perHourValue)
+        row.perHour:SetTextColor(pH_Colors.TEXT_PRIMARY[1], pH_Colors.TEXT_PRIMARY[2], pH_Colors.TEXT_PRIMARY[3])
+
+        row.total = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        row.total:SetPoint("RIGHT", row, "RIGHT", -60, 0)
+        row.total:SetJustifyH("RIGHT")
+        row.total:SetText(totalValue)
+        row.total:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+
+        row.pct = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        row.pct:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.pct:SetJustifyH("RIGHT")
+        row.pct:SetText(pctValue)
+        row.pct:SetTextColor(pH_Colors.TEXT_MUTED[1], pH_Colors.TEXT_MUTED[2], pH_Colors.TEXT_MUTED[3])
+
+        table.insert(panel.breakdownRows, row)
+        return row
+    end
+
+    local function ShowFocusPanel(data)
+        local panel = EnsureFocusPanel()
+        panel:ClearAllPoints()
+        panel:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, yOffset)
+        panel:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -10, yOffset)
+        panel:Show()
+
+        panel.title:SetText(data.label or "Metric")
+        panel.stats:SetText(string.format("%s  |  Total %s",
+            FormatMetricRate(data.key, data.rate),
+            FormatMetricTotal(data.key, data.total)))
+        if panel.sparkline then
+            local panelWidth = panel:GetWidth()
+            if panelWidth and panelWidth > 0 then
+                panel.sparkline:SetWidth(math.max(1, panelWidth - 20))
+            end
+        end
+        UpdateSparkline(panel.sparkline, data.buffer, data.color or pH_Colors.ACCENT_GOLD, 36, data.maxSamples)
+
+        -- Clear old breakdown rows
+        for _, row in ipairs(panel.breakdownRows) do
+            row:Hide()
+        end
+        panel.breakdownRows = {}
+        if panel.breakdownHeader then
+            panel.breakdownHeader.source:Hide()
+            panel.breakdownHeader.rate:Hide()
+            panel.breakdownHeader.total:Hide()
+            panel.breakdownHeader.pct:Hide()
+            panel.breakdownHeaderDivider:Hide()
+        end
+
+        if data.key == "gold" and session and metrics and metrics.totalValue and metrics.totalValue > 0 then
+            local goldPct = math.floor((metrics.cash / metrics.totalValue) * 100)
+            local expectedPct = 100 - goldPct
+            panel.breakdown:SetText(string.format("Breakdown: Gold %d%% | Expected %d%%", goldPct, expectedPct))
+            panel.breakdown:Show()
+            if panel.breakdownHeader then
+                panel.breakdownHeader.source:Show()
+                panel.breakdownHeader.rate:Show()
+                panel.breakdownHeader.total:Show()
+                panel.breakdownHeader.pct:Show()
+                panel.breakdownHeaderDivider:Show()
+            end
+
+            -- Source breakdown (same categories as HUD gold panel)
+            local rawGold = GoldPH_Ledger:GetBalance(session, "Income:LootedCoin") or 0
+            -- NOTE: Ledger posts vendor trash income to Income:ItemsLooted:VendorTrash
+            local vendorTrash = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:VendorTrash") or 0
+            local rareItems = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:RareMulti") or 0
+            local gathering = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:Gathering") or 0
+            local questRewards = GoldPH_Ledger:GetBalance(session, "Income:Quest") or 0
+            local vendorSales = GoldPH_Ledger:GetBalance(session, "Income:VendorSales") or 0
+            local pickpocketCoin = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:Coin") or 0
+            local pickpocketItems = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:Items") or 0
+            local lockboxCoin = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:FromLockbox:Coin") or 0
+            local lockboxItems = GoldPH_Ledger:GetBalance(session, "Income:Pickpocket:FromLockbox:Items") or 0
+            local pickpocketTotal = pickpocketCoin + pickpocketItems + lockboxCoin + lockboxItems
+            local totalGold = rawGold + vendorTrash + rareItems + gathering + questRewards + vendorSales + pickpocketTotal
+
+            local durationHours = metrics.durationSec / 3600
+            if durationHours == 0 then durationHours = 1 end
+
+            local categories = {
+                {"Raw Gold", rawGold},
+                {"Quest Rewards", questRewards},
+                {"Vendor Sales", vendorSales},
+                {"Vendor Trash", vendorTrash},
+                {"AH / Rare Items", rareItems},
+                {"Gathering", gathering},
+                {"Pickpocketing", pickpocketTotal},
+            }
+
+            local rowY = FOCUS_ROW_START
+            local rowCount = 0
+            for _, cat in ipairs(categories) do
+                local label, value = cat[1], cat[2]
+                if value > 0 then
+                    local perHour = math.floor(value / durationHours)
+                    local pct = totalGold > 0 and math.floor((value / totalGold) * 100) or 0
+                    AddFocusBreakdownRow(panel, rowY, label,
+                        GoldPH_Ledger:FormatMoneyShort(perHour) .. "/hr",
+                        GoldPH_Ledger:FormatMoney(value),
+                        string.format("%d%%", pct))
+                    rowY = rowY - FOCUS_ROW_STEP
+                    rowCount = rowCount + 1
+                end
+            end
+
+            local rowsHeight = 0
+            if rowCount > 0 then
+                rowsHeight = ((rowCount - 1) * FOCUS_ROW_STEP) + FOCUS_ROW_HEIGHT
+            end
+            local requiredHeight = math.abs(FOCUS_ROW_START) + rowsHeight + FOCUS_BOTTOM_CLEARANCE
+            panel:SetHeight(math.max(FOCUS_BASE_HEIGHT, requiredHeight))
+            return panel:GetHeight() + 20
+        else
+            panel.breakdown:SetText("")
+            panel.breakdown:Hide()
+            panel:SetHeight(FOCUS_BASE_HEIGHT)
+            return panel:GetHeight() + 20
+        end
+    end
+
+    if self.focusMetricKey and metricMap[self.focusMetricKey] then
+        metricContainer:Hide()
+        local focusContentHeight = ShowFocusPanel(metricMap[self.focusMetricKey])
+        scrollChild:SetHeight(math.abs(yOffset) + focusContentHeight)
+        return
+    end
+
+    if scrollChild.focusPanel then
+        scrollChild.focusPanel:Hide()
+    end
+
+    -- Always show all 4 metric cards (even if no data)
+    for _, metricKey in ipairs(metricOrder) do
+        local card = EnsureCard(metricKey)
+        local data = metricMap[metricKey]
+        if data then
+            card:SetSize(cardWidth, cardHeight)
+            if card.sparkline then
+                card.sparkline:SetWidth(math.max(1, cardWidth - 16))
+            end
+            card:Show()
+            UpdateCard(card, data)
+        else
+            -- Create empty data for missing metrics
+            local emptyData = {
+                key = metricKey,
+                label = METRIC_LABELS[metricKey],
+                icon = METRIC_ICONS[metricKey],
+                color = METRIC_COLORS[metricKey],
+                rate = 0,
+                total = 0,
+                peak = 0,
+                buffer = nil,
+                maxSamples = nil,
+                isActive = false,
+            }
+            card:SetSize(cardWidth, cardHeight)
+            if card.sparkline then
+                card.sparkline:SetWidth(math.max(1, cardWidth - 16))
+            end
+            card:Show()
+            UpdateCard(card, emptyData)
+        end
+    end
+
+    -- Layout cards in 2x2 grid (always 4 cards)
+    for i, metricKey in ipairs(metricOrder) do
+        local card = scrollChild.metricCards[metricKey]
+        if card then
+            local row = math.floor((i - 1) / 2)
+            local col = (i - 1) % 2
+            card:ClearAllPoints()
+            card:SetPoint("TOPLEFT", metricContainer, "TOPLEFT",
+                col * (cardWidth + cardGap),
+                -(row * (cardHeight + cardGap)))
+        end
+    end
+
+    local containerHeight = (2 * cardHeight) + cardGap  -- Always 2 rows
+    metricContainer:SetHeight(containerHeight)
+    yOffset = yOffset - containerHeight - 10
 
     -- Helper function to add section header
     local function AddHeader(text)
@@ -296,23 +928,18 @@ function GoldPH_History_Detail:RenderSummaryTab()
         return labelText, valueText
     end
 
-    -- Session Info (compact)
-    AddHeader("Session #" .. session.id .. " - " .. (session.zone or "Unknown"))
-    AddRow("Started", FormatFriendlyDate(session.startedAt), pH_Colors.TEXT_MUTED)
-    AddRow("Duration", GoldPH_SessionManager:FormatDuration(metrics.durationSec))
-
     yOffset = yOffset - 10
 
     -- Economic Summary
     AddHeader("Economic Summary")
     AddRow("Total Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.totalPerHour) .. "/hr", pH_Colors.TEXT_MUTED)
-    AddRow("Cash Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.cashPerHour) .. "/hr", pH_Colors.ACCENT_GOOD)
+    AddRow("Gold Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.cashPerHour) .. "/hr", pH_Colors.ACCENT_GOOD)
     AddRow("Expected Per Hour", GoldPH_Ledger:FormatMoneyShort(metrics.expectedPerHour) .. "/hr", pH_Colors.TEXT_MUTED)
 
     yOffset = yOffset - 10
 
-    -- Cash Flow Breakdown
-    AddHeader("Cash Flow")
+    -- Gold flow (income / expenses)
+    AddHeader("Income / Expenses")
     AddRow("Looted Coin", GoldPH_Ledger:FormatMoney(metrics.income))
     AddRow("Quest Rewards", GoldPH_Ledger:FormatMoney(metrics.incomeQuest))
     AddRow("Vendor Sales", GoldPH_Ledger:FormatMoney(GoldPH_Ledger:GetBalance(session, "Income:VendorSales")))
@@ -742,7 +1369,7 @@ function GoldPH_History_Detail:RenderCompareTab()
     )
 
     AddComparisonRow(
-        "Cash g/hr",
+        "Gold g/hr",
         GoldPH_Ledger:FormatMoneyShort(metrics.cashPerHour),
         "N/A",  -- We don't track cash avg in zoneAgg yet
         nil

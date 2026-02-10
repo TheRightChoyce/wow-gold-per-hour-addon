@@ -53,8 +53,9 @@ function GoldPH_History:Initialize()
     -- Enable Escape key to close (taint-free method)
     table.insert(UISpecialFrames, "GoldPH_HistoryFrame")
 
-    -- Enable keyboard navigation
+    -- Enable keyboard: handle Escape + Up/Down for list; propagate all keys to game so movement works
     frame:EnableKeyboard(true)
+    frame:SetPropagateKeyboardInput(true)
     frame:SetScript("OnKeyDown", function(self, key)
         GoldPH_History:OnKeyDown(key)
     end)

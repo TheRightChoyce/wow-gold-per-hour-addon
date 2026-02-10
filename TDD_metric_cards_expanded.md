@@ -9,17 +9,17 @@
 ├──────────────────────────────────────────────────────────────────┤
 │  ┌───────────────────────────────┐   ┌──────────────────────────┐ │
 │  │ [ICON] GOLD / HOUR            │   │ [ICON] XP / HOUR          │ │
-│  │ 124g/hr        Trend:  ▲      │   │ 42k/hr      Trend:  ▬     │ │
+│  │ 124g/hr                      │   │ 42k/hr                     │ │
 │  │ Total: 1,560g  Peak: 185g/hr  │   │ Total: 320k  Peak: 52k/hr │ │
-│  │ Stability: Stable             │   │ Stability: Volatile       │ │
+│  │                               │   │                           │ │
 │  │ ▁▂▃▄▅▆▇▆▅▄▃▂▁  (last 10–15m)   │   │ ▂▃▂▄▆▅▇▅▄▃▅▆▃▂▁          │ │
 │  │ [ Focus ]                     │   │ [ Focus ]                │ │
 │  └───────────────────────────────┘   └──────────────────────────┘ │
 │  ┌───────────────────────────────┐   ┌──────────────────────────┐ │
 │  │ [ICON] REP / HOUR             │   │ [ICON] HONOR / HOUR       │ │
-│  │ +320/hr       Trend:  ▲       │   │ 1,200/hr    Trend: ▼      │ │
+│  │ +320/hr                      │   │ 1,200/hr                   │ │
 │  │ Total: +3,400 Peak: +450/hr   │   │ Total: 14,500 Peak: 1,600 │ │
-│  │ Stability: Stable             │   │ Stability: Highly Volatile│ │
+│  │                               │   │                           │ │
 │  │ ▁▁▂▃▄▅▅▆▇▆▅▄▃▂▁               │   │ ▂▆▁▇▂▆▁▇▃▅▁▆▂▇▁           │ │
 │  │ [ Focus ]                     │   │ [ Focus ]                │ │
 │  └───────────────────────────────┘   └──────────────────────────┘ │
@@ -33,7 +33,7 @@
 
 ```
 ┌──────────────────────────── Focus: GOLD ───────────────────────────┐
-│ 124g/hr   Total 1,560g   Peak 185g/hr   Stability: Stable           │
+│ 124g/hr   Total 1,560g   Peak 185g/hr                               │
 │ ▂▃▄▅▆▇▆▅▄▃▂▁  (timeline 30–60m, optional markers)                   │
 │ Breakdown: Loot 60% | Vendor 25% | AH 15% (if tracked)              │
 │ [Back]                                                           [Pin]
@@ -64,8 +64,7 @@ Each active metric card must include:
 - Primary stat: `ratePerHour` (large typography)
 - Secondary stats: `total`, `peakPerHour`
 - Qualitative indicators:
-  - `trend` (▲ improving, ▬ stable, ▼ declining)
-  - `stability` label
+  - None (trend and stability indicators removed)
 - Mini sparkline (last 10–15 minutes)
 - Clickable focus action
 
@@ -85,7 +84,7 @@ Each active metric card must include:
 Clicking a card opens a focus panel that includes:
 
 - Larger sparkline (30–60 minute window if available)
-- Headline stats (rate, total, peak, stability)
+- Headline stats (rate, total, peak)
 - Optional breakdown modules (only if tracked)
 - Single-click exit (Back or Close button)
 
@@ -109,15 +108,7 @@ Per session:
 - `total = delta`
 - `peakPerHour` = rolling peak of smoothed rates
 
-Trend calculation:
-
-- Compare rolling window A vs previous window B
-- Thresholds define ▲ / ▬ / ▼
-
-Stability calculation:
-
-- Based on variance or standard deviation of rolling rates
-- Bucket into: Stable / Volatile / Highly Volatile
+Trend/stability calculations are not part of current metric card UI behavior.
 
 #### 3.3 Sparkline Buffers
 

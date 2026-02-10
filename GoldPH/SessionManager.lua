@@ -4,7 +4,7 @@
     Handles session creation, persistence, and metrics computation.
 ]]
 
--- luacheck: globals GetMaxPlayerLevel UnitLevel UnitXP UnitXPMax GoldPH_DB_Account
+-- luacheck: globals GetMaxPlayerLevel UnitLevel UnitXP UnitXPMax UnitClass GoldPH_DB_Account GoldPH_Settings
 
 local GoldPH_SessionManager = {}
 
@@ -19,6 +19,16 @@ function GoldPH_SessionManager:StartSession()
     local sessionId = GoldPH_DB_Account.meta.lastSessionId
 
     local now = time()
+
+    -- Character class metadata (stored per-session; fallback for old sessions when displaying)
+    local className
+    if UnitClass then
+        -- UnitClass returns localizedName, classToken, classID (varies slightly by client)
+        local localizedName = UnitClass("player")
+        if type(localizedName) == "string" and localizedName ~= "" then
+            className = localizedName
+        end
+    end
 
     -- Create new session
     local session = {
@@ -38,6 +48,7 @@ function GoldPH_SessionManager:StartSession()
         character = UnitName("player") or "Unknown",
         realm = GetRealmName() or "Unknown",
         faction = UnitFactionGroup("player") or "Unknown",
+        class = className or "Unknown",
 
         -- Phase 3: Item tracking
         items = {},      -- [itemID] = ItemAgg (count, expected value, etc.)
@@ -52,7 +63,7 @@ function GoldPH_SessionManager:StartSession()
             fromLockbox = { gold = 0, value = 0 },
         },
 
-        -- Phase 6: Gathering nodes (for future metrics)
+        -- Phase 6 / 7: Gathering nodes (per-session counts)
         gathering = {
             totalNodes = 0,
             nodesByType = {},
@@ -379,6 +390,93 @@ function GoldPH_SessionManager:GetMetrics(session)
     }
 end
 
+--------------------------------------------------
+-- Metric History (for expanded metric cards)
+--------------------------------------------------
+local function EnsureMetricHistoryDefaults()
+    if not GoldPH_Settings then
+        return {
+            sampleInterval = 10,
+            bufferMinutes = 60,
+        }
+    end
+    if not GoldPH_Settings.metricCards then
+        GoldPH_Settings.metricCards = {
+            sampleInterval = 10,
+            bufferMinutes = 60,
+            sparklineMinutes = 15,
+            showInactive = false,
+        }
+    end
+    return GoldPH_Settings.metricCards
+end
+
+local function CreateMetricBuffer(capacity)
+    return {
+        samples = {},
+        head = 0,
+        count = 0,
+        capacity = capacity,
+    }
+end
+
+function GoldPH_SessionManager:EnsureMetricHistory(session)
+    if not session then return end
+    if session.metricHistory then return end
+
+    local cfg = EnsureMetricHistoryDefaults()
+    local sampleInterval = cfg.sampleInterval or 10
+    local bufferMinutes = cfg.bufferMinutes or 60
+    local capacity = math.max(1, math.floor((bufferMinutes * 60) / sampleInterval))
+
+    session.metricHistory = {
+        sampleInterval = sampleInterval,
+        lastSampleAt = 0,
+        capacity = capacity,
+        metrics = {
+            gold = CreateMetricBuffer(capacity),
+            xp = CreateMetricBuffer(capacity),
+            rep = CreateMetricBuffer(capacity),
+            honor = CreateMetricBuffer(capacity),
+        },
+    }
+end
+
+local function PushSample(buffer, value)
+    local nextIndex = buffer.head + 1
+    if nextIndex > buffer.capacity then
+        nextIndex = 1
+    end
+    buffer.samples[nextIndex] = value
+    buffer.head = nextIndex
+    if buffer.count < buffer.capacity then
+        buffer.count = buffer.count + 1
+    end
+end
+
+function GoldPH_SessionManager:SampleMetricHistory(session, metrics)
+    if not session or not metrics then return end
+    if self:IsPaused(session) then return end
+
+    self:EnsureMetricHistory(session)
+    local history = session.metricHistory
+    if not history then return end
+
+    local now = time()
+    if history.lastSampleAt > 0 and (now - history.lastSampleAt) < history.sampleInterval then
+        return
+    end
+    history.lastSampleAt = now
+
+    local metricBuffers = history.metrics
+    if not metricBuffers then return end
+
+    PushSample(metricBuffers.gold, metrics.totalPerHour or 0)
+    PushSample(metricBuffers.xp, metrics.xpPerHour or 0)
+    PushSample(metricBuffers.rep, metrics.repPerHour or 0)
+    PushSample(metricBuffers.honor, metrics.honorPerHour or 0)
+end
+
 -- Format duration in human-readable form
 function GoldPH_SessionManager:FormatDuration(seconds)
     local hours = math.floor(seconds / 3600)
@@ -441,6 +539,34 @@ function GoldPH_SessionManager:AddItem(session, itemID, itemName, quality, bucke
     -- Update counts
     session.items[itemID].count = session.items[itemID].count + count
     session.items[itemID].expectedTotal = session.items[itemID].expectedTotal + (count * expectedEach)
+end
+
+-- Increment gathering node counters
+-- @param session: Active session
+-- @param nodeName: Human-readable node name (e.g., "Copper Vein", "Peacebloom", "Fishing")
+function GoldPH_SessionManager:AddGatherNode(session, nodeName)
+    if not session then
+        return
+    end
+
+    -- Ensure gathering structure exists (backward compatibility for older sessions)
+    if not session.gathering then
+        session.gathering = {
+            totalNodes = 0,
+            nodesByType = {},
+        }
+    end
+
+    local name = nodeName
+    if not name or name == "" then
+        name = "Unknown"
+    end
+
+    session.gathering.totalNodes = (session.gathering.totalNodes or 0) + 1
+    if not session.gathering.nodesByType then
+        session.gathering.nodesByType = {}
+    end
+    session.gathering.nodesByType[name] = (session.gathering.nodesByType[name] or 0) + 1
 end
 
 -- Export module

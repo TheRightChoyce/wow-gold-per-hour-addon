@@ -197,6 +197,10 @@ function GoldPH_Debug:RunTests()
     local test9 = self:Test_SessionDurationAccumulator()
     table.insert(testResults, test9)
 
+    -- Gathering tests
+    local test10 = self:Test_GatheringNodes()
+    table.insert(testResults, test10)
+
     -- Summary
     local passed = 0
     local failed = 0
@@ -568,6 +572,93 @@ function GoldPH_Debug:Test_SessionDurationAccumulator()
     return {name = testName, passed = passed, message = msg}
 end
 
+-- Test: Gathering node tracking (all 4 types)
+function GoldPH_Debug:Test_GatheringNodes()
+    local testName = "Gathering Nodes (All Types)"
+
+    -- Ensure session is active
+    if not GoldPH_SessionManager:GetActiveSession() then
+        GoldPH_SessionManager:StartSession()
+    end
+
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        return {name = testName, passed = false, message = "No active session"}
+    end
+
+    -- Record initial state
+    local initialTotal = (session.gathering and session.gathering.totalNodes) or 0
+    local initialGatherInv = GoldPH_Ledger:GetBalance(session, "Assets:Inventory:Gathering")
+    local initialGatherIncome = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:Gathering")
+
+    -- Inject nodes for each gathering type with realistic copper values per node
+    local ok1, _ = GoldPH_Events:InjectGatherNode("Copper Vein", 3, 8000)               -- Mining: 80s/node
+    local ok2, _ = GoldPH_Events:InjectGatherNode("Peacebloom", 5, 5000)                -- Herbalism: 50s/node
+    local ok3, _ = GoldPH_Events:InjectGatherNode("Light Leather", 2, 3000)             -- Skinning: 30s/node
+    local ok4, _ = GoldPH_Events:InjectGatherNode("Raw Brilliant Smallfish", 4, 2000)   -- Fishing: 20s/node
+
+    if not (ok1 and ok2 and ok3 and ok4) then
+        self:LogTestResult(testName, false, "One or more InjectGatherNode calls failed")
+        return {name = testName, passed = false, message = "Injection failed"}
+    end
+
+    -- Expected values
+    -- Mining: 3 * 8000 = 24000, Herb: 5 * 5000 = 25000, Skin: 2 * 3000 = 6000, Fish: 4 * 2000 = 8000
+    local expectedValueInjected = 24000 + 25000 + 6000 + 8000  -- 63000 copper
+
+    -- Verify totalNodes incremented correctly
+    local expectedTotal = initialTotal + 3 + 5 + 2 + 4  -- 14 new nodes
+    local actualTotal = session.gathering.totalNodes
+
+    local pass1 = (actualTotal == expectedTotal)
+
+    -- Verify nodesByType has all 4 entries with correct counts
+    local nbt = session.gathering.nodesByType or {}
+    local pass2 = (nbt["Copper Vein"] and nbt["Copper Vein"] >= 3)
+    local pass3 = (nbt["Peacebloom"] and nbt["Peacebloom"] >= 5)
+    local pass4 = (nbt["Light Leather"] and nbt["Light Leather"] >= 2)
+    local pass5 = (nbt["Raw Brilliant Smallfish"] and nbt["Raw Brilliant Smallfish"] >= 4)
+
+    -- Verify hasGathering flag would be true in Index
+    local pass6 = (session.gathering.totalNodes > 0)
+
+    -- Verify ledger values: gathering inventory and income should increase by expectedValueInjected
+    local finalGatherInv = GoldPH_Ledger:GetBalance(session, "Assets:Inventory:Gathering")
+    local finalGatherIncome = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:Gathering")
+    local invDiff = finalGatherInv - initialGatherInv
+    local incomeDiff = finalGatherIncome - initialGatherIncome
+
+    local pass7 = (invDiff == expectedValueInjected)
+    local pass8 = (incomeDiff == expectedValueInjected)
+
+    local passed = pass1 and pass2 and pass3 and pass4 and pass5 and pass6 and pass7 and pass8
+    local message
+    if not pass1 then
+        message = string.format("FAIL: totalNodes expected %d, got %d", expectedTotal, actualTotal)
+    elseif not pass2 then
+        message = string.format("FAIL: Copper Vein count wrong (got %s)", tostring(nbt["Copper Vein"]))
+    elseif not pass3 then
+        message = string.format("FAIL: Peacebloom count wrong (got %s)", tostring(nbt["Peacebloom"]))
+    elseif not pass4 then
+        message = string.format("FAIL: Light Leather count wrong (got %s)", tostring(nbt["Light Leather"]))
+    elseif not pass5 then
+        message = string.format("FAIL: Raw Brilliant Smallfish count wrong (got %s)", tostring(nbt["Raw Brilliant Smallfish"]))
+    elseif not pass6 then
+        message = "FAIL: totalNodes is 0 (hasGathering would be false)"
+    elseif not pass7 then
+        message = string.format("FAIL: Inventory value expected +%d, got +%d", expectedValueInjected, invDiff)
+    elseif not pass8 then
+        message = string.format("FAIL: Income value expected +%d, got +%d", expectedValueInjected, incomeDiff)
+    else
+        message = string.format("OK (totalNodes=%d, 4 types, value=%s)",
+            actualTotal, GoldPH_Ledger:FormatMoney(expectedValueInjected))
+    end
+
+    self:LogTestResult(testName, passed, message)
+
+    return {name = testName, passed = passed, message = message}
+end
+
 -- Log test result
 function GoldPH_Debug:LogTestResult(testName, passed, message)
     local color = passed and COLOR_GREEN or COLOR_RED
@@ -824,6 +915,63 @@ function GoldPH_Debug:ShowPickpocket()
 end
 
 --------------------------------------------------
+-- Gathering Inspection
+--------------------------------------------------
+
+-- Show gathering node statistics (Phase 7)
+function GoldPH_Debug:ShowGathering()
+    local session = GoldPH_SessionManager:GetActiveSession()
+    if not session then
+        print(COLOR_YELLOW .. "[GoldPH Debug] No active session" .. COLOR_RESET)
+        return
+    end
+
+    print(COLOR_YELLOW .. "=== Gathering Statistics ===" .. COLOR_RESET)
+
+    if not session.gathering or not session.gathering.totalNodes or session.gathering.totalNodes == 0 then
+        print("  " .. COLOR_RED .. "No gathering data in this session" .. COLOR_RESET)
+        print(COLOR_YELLOW .. "===========================" .. COLOR_RESET)
+        return
+    end
+
+    local g = session.gathering
+    local metrics = GoldPH_SessionManager:GetMetrics(session)
+    local durationHrs = metrics.durationSec / 3600
+
+    print(string.format("  Total Nodes: %d", g.totalNodes))
+    if durationHrs > 0 then
+        print(string.format("  Nodes/Hour:  %.1f", g.totalNodes / durationHrs))
+    end
+
+    -- Gathering inventory value
+    local gatherInv = GoldPH_Ledger:GetBalance(session, "Assets:Inventory:Gathering")
+    local gatherIncome = GoldPH_Ledger:GetBalance(session, "Income:ItemsLooted:Gathering")
+    if gatherInv > 0 or gatherIncome > 0 then
+        print(string.format("\n  Inventory Value: %s", GoldPH_Ledger:FormatMoney(gatherInv)))
+        print(string.format("  Income Booked:   %s", GoldPH_Ledger:FormatMoney(gatherIncome)))
+    end
+
+    -- Per-node-type breakdown
+    if g.nodesByType and next(g.nodesByType) then
+        print("\n  Breakdown by Node Type:")
+
+        -- Sort by count descending
+        local sorted = {}
+        for name, count in pairs(g.nodesByType) do
+            table.insert(sorted, {name = name, count = count})
+        end
+        table.sort(sorted, function(a, b) return a.count > b.count end)
+
+        for _, entry in ipairs(sorted) do
+            local pct = (entry.count / g.totalNodes) * 100
+            print(string.format("    %-30s %3d  (%4.1f%%)", entry.name, entry.count, pct))
+        end
+    end
+
+    print(COLOR_YELLOW .. "===========================" .. COLOR_RESET)
+end
+
+--------------------------------------------------
 -- HUD Testing
 --------------------------------------------------
 
@@ -847,7 +995,6 @@ function GoldPH_Debug:TestHUD()
     -- Sample values (in copper)
     local goldAmount = 1000000     -- 100g looted coin
     local inventoryAmount = 300000 -- 30g vendor trash + rare items
-    local gatheringAmount = 200000 -- 20g gathering mats
     local expenseAmount = 50000    -- 5g repairs
 
     -- Inject looted gold
@@ -858,25 +1005,33 @@ function GoldPH_Debug:TestHUD()
     GoldPH_Ledger:Post(session, "Assets:Inventory:VendorTrash", "Income:ItemsLooted:VendorTrash", inventoryAmount)
     print(string.format("  Injected inventory (vendor trash): %s", GoldPH_Ledger:FormatMoney(inventoryAmount)))
 
-    -- Inject gathering items - direct ledger posting
-    GoldPH_Ledger:Post(session, "Assets:Inventory:Gathering", "Income:ItemsLooted:Gathering", gatheringAmount)
-    print(string.format("  Injected gathering: %s", GoldPH_Ledger:FormatMoney(gatheringAmount)))
+    -- Inject gathering nodes with value (all 4 types)
+    -- Value per node simulates average loot yield from each node type
+    GoldPH_Events:InjectGatherNode("Copper Vein", 8, 8000)            -- Mining: ~80s/node
+    GoldPH_Events:InjectGatherNode("Tin Vein", 4, 12000)              -- Mining: ~1g20s/node
+    GoldPH_Events:InjectGatherNode("Peacebloom", 12, 5000)            -- Herbalism: ~50s/node
+    GoldPH_Events:InjectGatherNode("Silverleaf", 6, 4000)             -- Herbalism: ~40s/node
+    GoldPH_Events:InjectGatherNode("Light Leather", 5, 3000)          -- Skinning: ~30s/node
+    GoldPH_Events:InjectGatherNode("Raw Brilliant Smallfish", 3, 2000) -- Fishing: ~20s/node
+    -- Total gathering value: 8*8000 + 4*12000 + 12*5000 + 6*4000 + 5*3000 + 3*2000 = 217000 copper (~21g70s)
+    print(string.format("  Injected gathering: 38 nodes, %s total value", GoldPH_Ledger:FormatMoney(217000)))
 
     -- Inject repair expense
     GoldPH_Events:InjectRepair(expenseAmount)
     print(string.format("  Injected expenses: %s", GoldPH_Ledger:FormatMoney(expenseAmount)))
 
     -- Calculate expected HUD values
+    local actualGatheringValue = 217000  -- sum from node injections above
     local expectedGold = goldAmount - expenseAmount  -- 95g (gold minus expenses)
     local expectedInventory = inventoryAmount        -- 30g
-    local expectedGathering = gatheringAmount        -- 20g
-    local expectedTotal = expectedGold + expectedInventory + expectedGathering  -- 145g
+    local expectedGathering = actualGatheringValue   -- ~21g70s
+    local expectedTotal = expectedGold + expectedInventory + expectedGathering
 
     print("")
     print(COLOR_GREEN .. "Expected HUD values:" .. COLOR_RESET)
     print(string.format("  Gold: %s", GoldPH_Ledger:FormatMoney(expectedGold)))
     print(string.format("  Inventory: %s", GoldPH_Ledger:FormatMoney(expectedInventory)))
-    print(string.format("  Gathering: %s", GoldPH_Ledger:FormatMoney(expectedGathering)))
+    print(string.format("  Gathering: %s (38 nodes)", GoldPH_Ledger:FormatMoney(expectedGathering)))
     print(string.format("  Expenses: -%s", GoldPH_Ledger:FormatMoney(expenseAmount)))
     print(string.format("  Total: %s", GoldPH_Ledger:FormatMoney(expectedTotal)))
 
@@ -903,6 +1058,197 @@ function GoldPH_Debug:ResetTestHUD()
     GoldPH_SessionManager:StartSession()
     GoldPH_HUD:Update()
     print(COLOR_GREEN .. "[GoldPH] Fresh session started for testing" .. COLOR_RESET)
+end
+
+--------------------------------------------------
+-- Session Duplication Detection and Repair
+--------------------------------------------------
+
+-- Build a content signature for a session (used for duplicate detection)
+local function BuildSessionSignature(session)
+    -- Extract key fields that uniquely identify a session
+    local startedAt = session.startedAt or 0
+    local zone = session.zone or "Unknown"
+    local character = session.character or "Unknown"
+    local realm = session.realm or "Unknown"
+    local durationSec = session.durationSec or 0
+    local cash = GoldPH_Ledger:GetBalance(session, "Assets:Cash") or 0
+
+    -- Build a pipe-separated signature
+    return string.format("%d|%s|%s|%s|%d|%d",
+        startedAt, zone, character, realm, durationSec, cash)
+end
+
+-- Scan database for duplicate sessions
+function GoldPH_Debug:ScanForDuplicates()
+    if not GoldPH_DB_Account or not GoldPH_DB_Account.sessions then
+        return {
+            duplicateGroups = {},
+            totalDuplicates = 0,
+            totalUnique = 0,
+        }
+    end
+
+    print(COLOR_YELLOW .. "[GoldPH] Scanning for duplicate sessions..." .. COLOR_RESET)
+
+    -- Build signature -> session IDs mapping
+    local sessionsBySig = {}  -- [signature] -> {id1, id2, ...}
+    local totalSessions = 0
+
+    for sessionId, session in pairs(GoldPH_DB_Account.sessions) do
+        -- Skip active session (never touch it)
+        if not GoldPH_DB_Account.activeSession or GoldPH_DB_Account.activeSession.id ~= sessionId then
+            local sig = BuildSessionSignature(session)
+
+            if not sessionsBySig[sig] then
+                sessionsBySig[sig] = {}
+            end
+            table.insert(sessionsBySig[sig], sessionId)
+            totalSessions = totalSessions + 1
+        end
+    end
+
+    -- Find duplicate groups (2+ sessions with same signature)
+    local duplicateGroups = {}
+    local totalDuplicates = 0
+
+    for sig, sessionIds in pairs(sessionsBySig) do
+        if #sessionIds > 1 then
+            -- Sort IDs so lowest is first (canonical)
+            table.sort(sessionIds)
+
+            local canonicalId = sessionIds[1]
+            local duplicateIds = {}
+            for i = 2, #sessionIds do
+                table.insert(duplicateIds, sessionIds[i])
+                totalDuplicates = totalDuplicates + 1
+            end
+
+            -- Get session metadata for display
+            local canonicalSession = GoldPH_DB_Account.sessions[canonicalId]
+
+            table.insert(duplicateGroups, {
+                canonical_id = canonicalId,
+                duplicate_ids = duplicateIds,
+                signature = sig,
+                metadata = {
+                    zone = canonicalSession.zone or "Unknown",
+                    character = canonicalSession.character or "Unknown",
+                    startedAt = canonicalSession.startedAt,
+                    durationSec = canonicalSession.durationSec or 0,
+                },
+            })
+        end
+    end
+
+    return {
+        duplicateGroups = duplicateGroups,
+        totalDuplicates = totalDuplicates,
+        totalUnique = totalSessions - totalDuplicates,
+    }
+end
+
+-- Display duplicate scan results
+function GoldPH_Debug:ShowDuplicates()
+    local result = self:ScanForDuplicates()
+
+    print(COLOR_YELLOW .. "=== Session Duplicate Scan ===" .. COLOR_RESET)
+    print(string.format("  Total sessions scanned: %d", result.totalUnique + result.totalDuplicates))
+    print(string.format("  Unique sessions: %d", result.totalUnique))
+    print(string.format("  Duplicate sessions: %d", result.totalDuplicates))
+    print(string.format("  Duplicate groups: %d", #result.duplicateGroups))
+    print("")
+
+    if result.totalDuplicates == 0 then
+        print(COLOR_GREEN .. "  No duplicates found! Database is clean." .. COLOR_RESET)
+    else
+        print(COLOR_RED .. string.format("  Found %d duplicate sessions in %d groups:",
+            result.totalDuplicates, #result.duplicateGroups) .. COLOR_RESET)
+        print("")
+
+        for i, group in ipairs(result.duplicateGroups) do
+            local meta = group.metadata
+            local dateStr
+            if date then
+                dateStr = date("%Y-%m-%d %H:%M", meta.startedAt)
+            else
+                dateStr = tostring(meta.startedAt)
+            end
+
+            print(string.format("  Group #%d:", i))
+            print(string.format("    Zone: %s | Character: %s", meta.zone, meta.character))
+            print(string.format("    Date: %s | Duration: %ds", dateStr, meta.durationSec))
+            print(string.format("    Canonical (keep): Session #%d", group.canonical_id))
+            print(string.format("    Duplicates (remove): %s", table.concat(group.duplicate_ids, ", ")))
+            print("")
+        end
+
+        print(COLOR_YELLOW .. "  To remove duplicates, run: /goldph debug purge-dupes confirm" .. COLOR_RESET)
+    end
+
+    print(COLOR_YELLOW .. "=============================" .. COLOR_RESET)
+end
+
+-- Purge duplicate sessions from database
+function GoldPH_Debug:PurgeDuplicates(confirm)
+    -- First scan for duplicates
+    local result = self:ScanForDuplicates()
+
+    if result.totalDuplicates == 0 then
+        print(COLOR_GREEN .. "[GoldPH] No duplicates found. Database is clean." .. COLOR_RESET)
+        return
+    end
+
+    -- Dry run mode (show what would be removed)
+    if not confirm then
+        print(COLOR_YELLOW .. "=== Purge Duplicates (DRY RUN) ===" .. COLOR_RESET)
+        print(COLOR_RED .. "  WARNING: This will permanently delete duplicate sessions!" .. COLOR_RESET)
+        print(string.format("  Sessions to be removed: %d", result.totalDuplicates))
+        print(string.format("  Sessions to be kept: %d", result.totalUnique))
+        print("")
+
+        for i, group in ipairs(result.duplicateGroups) do
+            print(string.format("  Group #%d: Keep session #%d, remove %d duplicates",
+                i, group.canonical_id, #group.duplicate_ids))
+        end
+
+        print("")
+        print(COLOR_YELLOW .. "  IMPORTANT: Backup your SavedVariables folder first!" .. COLOR_RESET)
+        print(COLOR_YELLOW .. "  Location: WTF/Account/<YourAccount>/SavedVariables/GoldPH.lua" .. COLOR_RESET)
+        print("")
+        print(COLOR_GREEN .. "  To proceed with removal, run: /goldph debug purge-dupes confirm" .. COLOR_RESET)
+        print(COLOR_YELLOW .. "=================================" .. COLOR_RESET)
+        return
+    end
+
+    -- Confirmed purge
+    print(COLOR_RED .. "=== Purging Duplicate Sessions ===" .. COLOR_RESET)
+    print(string.format("  Removing %d duplicate sessions...", result.totalDuplicates))
+    print("")
+
+    local removedCount = 0
+
+    for _, group in ipairs(result.duplicateGroups) do
+        for _, duplicateId in ipairs(group.duplicate_ids) do
+            if GoldPH_DB_Account.sessions[duplicateId] then
+                GoldPH_DB_Account.sessions[duplicateId] = nil
+                removedCount = removedCount + 1
+                print(string.format("  Removed session #%d (duplicate of #%d)", duplicateId, group.canonical_id))
+            end
+        end
+    end
+
+    -- Mark index stale for rebuild
+    if GoldPH_Index then
+        GoldPH_Index:MarkStale()
+    end
+
+    print("")
+    print(COLOR_GREEN .. string.format("  Successfully removed %d duplicate sessions!", removedCount) .. COLOR_RESET)
+    print(string.format("  Kept %d unique sessions", result.totalUnique))
+    print("")
+    print(COLOR_YELLOW .. "  Run /reload to rebuild the history index" .. COLOR_RESET)
+    print(COLOR_RED .. "=================================" .. COLOR_RESET)
 end
 
 -- Export module

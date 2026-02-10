@@ -2,7 +2,7 @@
     init.lua - Entry point for GoldPH
 
     Handles initialization, slash commands, and event frame setup.
-    Account-wide: GoldPH_DB_Account (sessions). Per-character: GoldPH_DB (legacy migration), GoldPH_Settings (UI).
+    Account-wide: GoldPH_DB_Account (sessions). Per-character: GoldPH_Settings (UI state).
 ]]
 
 -- luacheck: globals GoldPH_DB GoldPH_DB_Account GoldPH_Settings
@@ -10,14 +10,11 @@
 -- Create main addon frame
 local GoldPH_MainFrame = CreateFrame("Frame", "GoldPH_MainFrame")
 
--- Migration version: after migrating, set this so we can remove migration code later
-local MIGRATION_VERSION = 2
-
--- Ensure account-wide DB exists and migrate from per-character if needed
+-- Ensure account-wide DB exists
 local function EnsureAccountDB()
     if not GoldPH_DB_Account then
         GoldPH_DB_Account = {
-            meta = { version = MIGRATION_VERSION, lastSessionId = 0 },
+            meta = { lastSessionId = 0 },
             priceOverrides = {},
             activeSession = nil,
             sessions = {},
@@ -25,75 +22,35 @@ local function EnsureAccountDB()
         }
     end
     if not GoldPH_DB_Account.meta then
-        GoldPH_DB_Account.meta = { version = MIGRATION_VERSION, lastSessionId = 0 }
+        GoldPH_DB_Account.meta = { lastSessionId = 0 }
     end
     if GoldPH_DB_Account.meta.lastSessionId == nil then
         GoldPH_DB_Account.meta.lastSessionId = 0
     end
+    if not GoldPH_DB_Account.debug then
+        GoldPH_DB_Account.debug = { enabled = false, verbose = false, lastTestResults = {} }
+    end
 end
 
--- Merge current character's sessions from per-char GoldPH_DB into GoldPH_DB_Account
-local function MigrateFromPerCharacter()
-    if not GoldPH_DB or not GoldPH_DB.sessions then
+-- Check for duplicate sessions and warn user
+local function WarnIfDuplicatesExist()
+    if not GoldPH_Debug or not GoldPH_Debug.ScanForDuplicates then
         return
     end
-    EnsureAccountDB()
-    local account = GoldPH_DB_Account
-    local charSessions = GoldPH_DB.sessions
-    local maxId = account.meta.lastSessionId or 0
-    for sid, session in pairs(charSessions) do
-        if account.sessions[sid] then
-            -- ID conflict: assign new id
-            maxId = maxId + 1
-            session.id = maxId
-            account.sessions[maxId] = session
-        else
-            account.sessions[sid] = session
-            if sid > maxId then
-                maxId = sid
-            end
-        end
-        -- Backfill character metadata for old sessions
-        if not session.character and GoldPH_DB.meta then
-            session.character = GoldPH_DB.meta.character or "Unknown"
-            session.realm = GoldPH_DB.meta.realm or "Unknown"
-            session.faction = GoldPH_DB.meta.faction or "Unknown"
-        end
-    end
-    account.meta.lastSessionId = maxId
-    -- Merge activeSession if it belongs to this character (same as current)
-    if GoldPH_DB.activeSession then
-        account.activeSession = GoldPH_DB.activeSession
-        if not account.activeSession.character and GoldPH_DB.meta then
-            account.activeSession.character = GoldPH_DB.meta.character or "Unknown"
-            account.activeSession.realm = GoldPH_DB.meta.realm or "Unknown"
-            account.activeSession.faction = GoldPH_DB.meta.faction or "Unknown"
-        end
-    end
-    -- Merge price overrides
-    if GoldPH_DB.priceOverrides then
-        for itemID, copper in pairs(GoldPH_DB.priceOverrides) do
-            if not account.priceOverrides[itemID] then
-                account.priceOverrides[itemID] = copper
-            end
-        end
-    end
-    -- Preserve debug if set
-    if GoldPH_DB.debug then
-        if GoldPH_DB.debug.verbose then
-            account.debug.verbose = true
-        end
-        if GoldPH_DB.debug.enabled then
-            account.debug.enabled = true
-        end
+
+    local scanResult = GoldPH_Debug:ScanForDuplicates()
+    if scanResult.totalDuplicates > 0 then
+        print(string.format(
+            "|cffff8000[GoldPH]|r Warning: %d duplicate sessions detected. " ..
+            "Type |cff00ff00/goldph debug dupes|r for details.",
+            scanResult.totalDuplicates
+        ))
     end
 end
 
 -- Initialize saved variables on first load
 local function InitializeSavedVariables()
     EnsureAccountDB()
-    -- Migrate from per-character DB (GoldPH_DB) into account DB
-    MigrateFromPerCharacter()
 
     -- Per-character settings (UI state)
     if not GoldPH_Settings then
@@ -118,13 +75,15 @@ local function InitializeSavedVariables()
                 minRefFloors = { gold = 50000, xp = 5000, rep = 50, honor = 100 },
                 updateThresholds = { gold = 1000, xp = 100, rep = 5, honor = 10 },
             },
+            metricCards = {
+                enabled = true,
+                useGridLayout = true,  -- Enable 2x2 grid layout
+                sampleInterval = 10,
+                bufferMinutes = 60,
+                sparklineMinutes = 15,
+                showInactive = false,
+            },
         }
-        -- Copy from legacy if present
-        if GoldPH_DB and GoldPH_DB.settings then
-            for k, v in pairs(GoldPH_DB.settings) do
-                GoldPH_Settings[k] = v
-            end
-        end
     end
     -- Ensure microBars exists (migration for existing GoldPH_Settings without it)
     if GoldPH_Settings.microBars == nil then
@@ -140,6 +99,20 @@ local function InitializeSavedVariables()
             minRefFloors = { gold = 50000, xp = 5000, rep = 50, honor = 100 },
             updateThresholds = { gold = 1000, xp = 100, rep = 5, honor = 10 },
         }
+    end
+    if GoldPH_Settings.metricCards == nil then
+        GoldPH_Settings.metricCards = {
+            enabled = true,
+            useGridLayout = true,  -- Enable 2x2 grid layout
+            sampleInterval = 10,
+            bufferMinutes = 60,
+            sparklineMinutes = 15,
+            showInactive = false,
+        }
+    end
+    -- Migration: add useGridLayout to existing settings
+    if GoldPH_Settings.metricCards.useGridLayout == nil then
+        GoldPH_Settings.metricCards.useGridLayout = true
     end
 
     -- Rest of addon uses GoldPH_DB_Account (see SessionManager, Index, Events, UI_*, etc.)
@@ -164,6 +137,9 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
         local charName = UnitName("player") or "Unknown"
         local realm = GetRealmName() or "Unknown"
         print("[GoldPH] Version 0.8.0 (cross-character sessions) loaded. Type /goldph help for commands.")
+
+        -- Check for duplicate sessions (delayed to avoid login spam)
+        C_Timer.After(2, WarnIfDuplicatesExist)
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Ensure settings exist
         if not GoldPH_Settings then
@@ -188,6 +164,14 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
                     minRefFloors = { gold = 50000, xp = 5000, rep = 50, honor = 100 },
                     updateThresholds = { gold = 1000, xp = 100, rep = 5, honor = 10 },
                 },
+            metricCards = {
+                enabled = true,
+                useGridLayout = true,  -- Enable 2x2 grid layout
+                sampleInterval = 10,
+                bufferMinutes = 60,
+                sparklineMinutes = 15,
+                showInactive = false,
+            },
             }
         end
         if GoldPH_Settings.hudVisible == nil then
@@ -208,6 +192,14 @@ GoldPH_MainFrame:SetScript("OnEvent", function(self, event, ...)
                 },
                 minRefFloors = { gold = 50000, xp = 5000, rep = 50, honor = 100 },
                 updateThresholds = { gold = 1000, xp = 100, rep = 5, honor = 10 },
+            }
+        end
+        if GoldPH_Settings.metricCards == nil then
+            GoldPH_Settings.metricCards = {
+                sampleInterval = 10,
+                bufferMinutes = 60,
+                sparklineMinutes = 15,
+                showInactive = false,
             }
         end
 
@@ -293,6 +285,9 @@ local function ShowHelp()
     print("|cffffff00/goldph debug holdings|r - Show holdings (Phase 3+)")
     print("|cffffff00/goldph debug prices|r - Show available price sources (TSM, Custom AH)")
     print("|cffffff00/goldph debug pickpocket|r - Show pickpocket statistics (Phase 6)")
+    print("|cffffff00/goldph debug gathering|r - Show gathering node statistics")
+    print("|cffffff00/goldph debug dupes|r - Scan for duplicate sessions in database")
+    print("|cffffff00/goldph debug purge-dupes [confirm]|r - Remove duplicate sessions (backup first!)")
     print("")
     print("|cff00ff00=== Test Commands ===|r")
     print("|cffffff00/goldph test run|r - Run automated test suite")
@@ -302,6 +297,7 @@ local function ShowHelp()
     print("|cffffff00/goldph test repair <copper>|r - Inject repair cost (Phase 2+)")
     print("|cffffff00/goldph test lootitem <itemID> <count>|r - Inject looted item (Phase 3+)")
     print("|cffffff00/goldph test vendoritem <itemID> <count>|r - Inject vendor sale (Phase 4+)")
+    print("|cffffff00/goldph test gathernode <name> [count] [copperValueEach]|r - Inject gathering node + value")
     print("======================")
 end
 
@@ -316,7 +312,7 @@ local function HandleCommand(msg)
 
     local debugShortcuts = {
         dump = true, ledger = true, holdings = true, prices = true, pickpocket = true,
-        on = true, off = true, verbose = true,
+        gathering = true, on = true, off = true, verbose = true,
     }
     if debugShortcuts[cmd] then
         table.insert(args, 1, "debug")
@@ -327,6 +323,7 @@ local function HandleCommand(msg)
         local ok, message = GoldPH_SessionManager:StartSession()
         print("[GoldPH] " .. message)
         if ok then
+            GoldPH_Settings.hudMinimized = true  -- New session starts with HUD collapsed
             GoldPH_HUD:Show()
         end
 
@@ -400,8 +397,15 @@ local function HandleCommand(msg)
             GoldPH_Debug:ShowPriceSources()
         elseif subCmd == "pickpocket" then
             GoldPH_Debug:ShowPickpocket()
+        elseif subCmd == "gathering" then
+            GoldPH_Debug:ShowGathering()
+        elseif subCmd == "dupes" then
+            GoldPH_Debug:ShowDuplicates()
+        elseif subCmd == "purge-dupes" then
+            local confirm = (args[3] or ""):lower() == "confirm"
+            GoldPH_Debug:PurgeDuplicates(confirm)
         else
-            print("[GoldPH] Debug commands: on, off, verbose, dump, ledger, holdings, prices, pickpocket")
+            print("[GoldPH] Debug commands: on, off, verbose, dump, ledger, holdings, prices, pickpocket, gathering, dupes, purge-dupes")
         end
 
     elseif cmd == "test" then
@@ -454,8 +458,48 @@ local function HandleCommand(msg)
                     print("[GoldPH] " .. (message or "Failed to inject vendor sale"))
                 end
             end
+        elseif subCmd == "gathernode" then
+            -- Usage: /goldph test gathernode <name> [count] [copperValueEach]
+            -- Last 1-2 numeric args are count and value; everything else is the name
+            if not args[3] then
+                print("[GoldPH] Usage: /goldph test gathernode <name> [count] [copperValueEach]")
+            else
+                -- Walk backwards to peel off numeric trailing args
+                local trailingNums = {}
+                local nameEnd = #args
+                for j = #args, 3, -1 do
+                    if tonumber(args[j]) then
+                        table.insert(trailingNums, 1, tonumber(args[j]))
+                        nameEnd = j - 1
+                    else
+                        break
+                    end
+                end
+                -- Build name from remaining args
+                local nameParts = {}
+                for i = 3, nameEnd do
+                    table.insert(nameParts, args[i])
+                end
+                local nodeName = table.concat(nameParts, " ")
+                if nodeName == "" then
+                    print("[GoldPH] Usage: /goldph test gathernode <name> [count] [copperValueEach]")
+                else
+                    local count = 1
+                    local copperValueEach = nil
+                    if #trailingNums == 1 then
+                        count = trailingNums[1]
+                    elseif #trailingNums >= 2 then
+                        count = trailingNums[1]
+                        copperValueEach = trailingNums[2]
+                    end
+                    local ok, message = GoldPH_Events:InjectGatherNode(nodeName, count, copperValueEach)
+                    if not ok then
+                        print("[GoldPH] " .. (message or "Failed to inject gather node"))
+                    end
+                end
+            end
         else
-            print("[GoldPH] Test commands: run, hud, reset, loot <copper>, repair <copper>, lootitem <itemID> <count>, vendoritem <itemID> <count>")
+            print("[GoldPH] Test commands: run, hud, reset, loot <copper>, repair <copper>, lootitem <itemID> <count>, vendoritem <itemID> <count>, gathernode <name> [count] [copperValueEach]")
         end
 
     elseif cmd == "help" then
