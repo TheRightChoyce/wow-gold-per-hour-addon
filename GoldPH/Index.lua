@@ -230,14 +230,14 @@ function GoldPH_Index:Build()
 
                     local agg = self.itemAgg[itemID]
                     agg.totalValue = agg.totalValue + itemData.expectedTotal
-                    agg.totalCount = agg.totalCount + itemData.count
+                    agg.totalCount = agg.totalCount + (itemData.countLooted or itemData.count)
 
                     -- Zone breakdown
                     if not agg.zones[zone] then
                         agg.zones[zone] = {value = 0, count = 0}
                     end
                     agg.zones[zone].value = agg.zones[zone].value + itemData.expectedTotal
-                    agg.zones[zone].count = agg.zones[zone].count + itemData.count
+                    agg.zones[zone].count = agg.zones[zone].count + (itemData.countLooted or itemData.count)
 
                     -- Char breakdown
                     if not agg.chars[charKey] then

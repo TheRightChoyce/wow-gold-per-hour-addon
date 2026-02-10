@@ -1106,7 +1106,7 @@ function GoldPH_History_Detail:RenderItemsTab()
         -- Quantity
         local qtyText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         qtyText:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -150, yOffset)
-        qtyText:SetText(tostring(itemData.count))
+        qtyText:SetText(tostring(itemData.countLooted or itemData.count))
         qtyText:SetJustifyH("RIGHT")
 
         -- Value
@@ -1123,7 +1123,7 @@ function GoldPH_History_Detail:RenderItemsTab()
     local totalItems = 0
     local totalValue = 0
     for _, itemData in ipairs(itemsArray) do
-        totalItems = totalItems + itemData.count
+        totalItems = totalItems + (itemData.countLooted or itemData.count)
         totalValue = totalValue + itemData.expectedTotal
     end
 

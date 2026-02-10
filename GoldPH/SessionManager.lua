@@ -4,14 +4,44 @@
     Handles session creation, persistence, and metrics computation.
 ]]
 
--- luacheck: globals GetMaxPlayerLevel UnitLevel UnitXP UnitXPMax UnitClass GoldPH_DB_Account GoldPH_Settings
+-- luacheck: globals GetMaxPlayerLevel UnitLevel UnitXP UnitXPMax UnitClass GoldPH_DB_Account GoldPH_Settings UnitName GetRealmName UnitFactionGroup
 
 local GoldPH_SessionManager = {}
 
+--------------------------------------------------
+-- Owner identity (session belongs to current character)
+--------------------------------------------------
+local function SessionOwnedByCurrentPlayer(session)
+    if not session or not session.character then
+        return false
+    end
+    local char = UnitName("player") or "Unknown"
+    local realm = GetRealmName() or "Unknown"
+    local faction = UnitFactionGroup("player") or "Unknown"
+    return session.character == char and session.realm == realm and session.faction == faction
+end
+
 -- Start a new session
 function GoldPH_SessionManager:StartSession()
-    if GoldPH_DB_Account.activeSession then
+    if self:GetActiveSession() then
         return false, "A session is already active. Stop it first with /goldph stop"
+    end
+
+    -- If another character has an active session, persist it to history so we don't lose it
+    local other = GoldPH_DB_Account.activeSession
+    if other and not SessionOwnedByCurrentPlayer(other) then
+        local now = time()
+        if other.currentLoginAt then
+            other.accumulatedDuration = (other.accumulatedDuration or 0) + (now - other.currentLoginAt)
+            other.currentLoginAt = nil
+        end
+        other.endedAt = now
+        other.durationSec = other.accumulatedDuration or 0
+        GoldPH_DB_Account.sessions[other.id] = other
+        GoldPH_DB_Account.activeSession = nil
+        if GoldPH_Index then
+            GoldPH_Index:MarkStale()
+        end
     end
 
     -- Increment session ID
@@ -119,13 +149,12 @@ function GoldPH_SessionManager:StartSession()
     return true, "Session #" .. sessionId .. " started"
 end
 
--- Stop the active session
+-- Stop the active session (only for current character's session)
 function GoldPH_SessionManager:StopSession()
-    if not GoldPH_DB_Account.activeSession then
+    local session = self:GetActiveSession()
+    if not session then
         return false, "No active session"
     end
-
-    local session = GoldPH_DB_Account.activeSession
 
     local now = time()
 
@@ -154,9 +183,16 @@ function GoldPH_SessionManager:StopSession()
                  self:FormatDuration(session.durationSec) .. ")"
 end
 
--- Get the active session (or nil)
+-- Get the active session for the current character only (or nil if none or owned by another character)
 function GoldPH_SessionManager:GetActiveSession()
-    return GoldPH_DB_Account.activeSession
+    local session = GoldPH_DB_Account.activeSession
+    if not session then
+        return nil
+    end
+    if not SessionOwnedByCurrentPlayer(session) then
+        return nil
+    end
+    return session
 end
 
 -- Return true if the session is paused (clock and events frozen)
@@ -166,10 +202,10 @@ end
 
 -- Pause the active session (stop clock and do not record events until resumed)
 function GoldPH_SessionManager:PauseSession()
-    if not GoldPH_DB.activeSession then
+    local session = self:GetActiveSession()
+    if not session then
         return false, "No active session"
     end
-    local session = GoldPH_DB.activeSession
     if session.pausedAt then
         return false, "Session is already paused"
     end
@@ -184,10 +220,10 @@ end
 
 -- Resume a paused session
 function GoldPH_SessionManager:ResumeSession()
-    if not GoldPH_DB.activeSession then
+    local session = self:GetActiveSession()
+    if not session then
         return false, "No active session"
     end
-    local session = GoldPH_DB.activeSession
     if not session.pausedAt then
         return false, "Session is not paused"
     end
@@ -532,12 +568,14 @@ function GoldPH_SessionManager:AddItem(session, itemID, itemName, quality, bucke
             quality = quality,
             bucket = bucket,
             count = 0,
+            countLooted = 0,
             expectedTotal = 0,
         }
     end
 
     -- Update counts
     session.items[itemID].count = session.items[itemID].count + count
+    session.items[itemID].countLooted = (session.items[itemID].countLooted or 0) + count
     session.items[itemID].expectedTotal = session.items[itemID].expectedTotal + (count * expectedEach)
 end
 

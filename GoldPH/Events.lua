@@ -1207,12 +1207,11 @@ function GoldPH_Events:ProcessVendorSale(session, itemID, itemName, count, vendo
         end
     end
 
-    -- Update item aggregate (decrement count)
+    -- Update item aggregate (decrement count, but keep entry for history)
     if session.items[itemID] then
         session.items[itemID].count = session.items[itemID].count - count
-        if session.items[itemID].count <= 0 then
-            -- Remove item from aggregates if count reaches zero
-            session.items[itemID] = nil
+        if session.items[itemID].count < 0 then
+            session.items[itemID].count = 0
         end
     end
 
